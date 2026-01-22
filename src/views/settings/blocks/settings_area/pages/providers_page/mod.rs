@@ -19,7 +19,8 @@ mod provider_settings;
 use provider_settings::*;
 
 use crate::{
-    assets::AstrumIconKind, managers::Managers,
+    assets::AstrumIconKind,
+    managers::{Managers, ProviderKind},
     views::settings::blocks::settings_area::pages::render_settings_page_title,
 };
 
@@ -55,7 +56,28 @@ impl RenderOnce for ProvidersPage {
             },
         );
 
-        add_provider_menu_state.on_item_click(|_checked, state, _item_name, _window, cx| {
+        let managers = self.managers.clone();
+        add_provider_menu_state.on_item_click(move |_checked, state, item_name, _window, cx| {
+            let kind = match item_name.as_ref() {
+                "Ollama" => ProviderKind::Ollama,
+                "OpenAI" => ProviderKind::OpenAi,
+                "Anthropic" => ProviderKind::Anthropic,
+                _ => return,
+            };
+
+            let name = kind.default_name();
+            let url = kind.default_url();
+            let icon = kind.default_icon();
+
+            let _ = managers.write_arc_blocking().models.new_provider(
+                cx,
+                kind,
+                name,
+                url,
+                Some(icon.to_string()),
+                None,
+            );
+
             state.hide_menu(cx);
         });
 
@@ -145,11 +167,16 @@ impl RenderOnce for ProvidersPage {
                             this
                         })
                         .children(providers.iter().map(|(provider_id, provider)| {
-                            let provider_id = self
+                            let element_id = self
                                 .id
                                 .with_suffix("provider")
                                 .with_suffix(provider_id.to_string());
-                            ProviderSettings::new(provider_id, provider.clone())
+                            ProviderSettings::new(
+                                element_id,
+                                self.managers.clone(),
+                                provider_id.clone(),
+                                provider.clone(),
+                            )
                         }))
                         .into_any_element(),
                 }

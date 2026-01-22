@@ -1,4 +1,4 @@
-use std::{collections::HashMap, env, sync::Arc};
+use std::sync::Arc;
 
 use anyml::{AnthropicProvider, ChatProvider, OllamaProvider, OpenAiProvider};
 use chrono::Utc;
@@ -15,39 +15,23 @@ use crate::{
     assets::AstrumLogoKind,
     managers::{DbError, UniqueId},
     secrets::{get_secret, remove_secret, set_secret},
+    utils::FrontInsertMap,
 };
 
 pub struct ModelsManager {
     db_connection: Option<Arc<rusqlite::Connection>>,
-    pub providers: Entity<HashMap<UniqueId, Arc<Provider>>>,
+    pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     current_provider_id: Entity<Option<UniqueId>>,
     current_model: Entity<Option<String>>,
 }
 
 impl<'a> ModelsManager {
     pub fn new(cx: &mut App) -> Self {
-        let anthropic: Arc<dyn ChatProvider> = Arc::new(AnthropicProvider::new(
-            GpuiHttpWrapper::new(cx.http_client()),
-            env::var("ANTHROPIC").unwrap(),
-        ));
-
-        let anthropic_id = UniqueId::new();
-        let anthropic_id_2 = anthropic_id.clone();
-
         Self {
             db_connection: None,
-            providers: cx.new(move |cx| {
-                let mut map = HashMap::new();
-
-                map.insert(
-                    anthropic_id_2,
-                    Arc::new(Provider::new(cx, anthropic, "", "", "")),
-                );
-
-                map
-            }),
-            current_provider_id: cx.new(|_cx| Some(anthropic_id)),
-            current_model: cx.new(|_cx| Some("claude-opus-4-5-20251101".into())),
+            providers: cx.new(move |_cx| FrontInsertMap::new()),
+            current_provider_id: cx.new(|_cx| None),
+            current_model: cx.new(|_cx| None),
         }
     }
 
@@ -240,6 +224,7 @@ impl<'a> ModelsManager {
                 url,
                 icon
             FROM providers
+            ORDER BY created_at
             "#,
             )
             .map_err(|err| DbError::SqliteError(err))?;
@@ -304,10 +289,8 @@ impl<'a> ModelsManager {
         };
 
         self.providers.update(cx, |providers, cx| {
-            providers.insert(
-                provider_id.clone(),
-                Arc::new(Provider::new(cx, provider, name, url, icon)),
-            );
+            let provider = Arc::new(Provider::new(cx, provider, name, url, icon));
+            providers.insert_front(provider_id.clone(), provider);
             cx.notify();
         });
 
@@ -341,14 +324,13 @@ impl<'a> ModelsManager {
         Ok(())
     }
 
-    /*pub fn edit_provider_url(
+    pub fn edit_provider_url(
         &mut self,
         cx: &mut App,
         provider_id: UniqueId,
         url: String,
     ) -> Result<(), DbError> {
-        // Ensure provider exists (and load it if needed)
-        let provider = self.get_provider(cx, &provider_id)?;
+        let _provider = self.get_provider(cx, &provider_id)?;
 
         let db = self
             .db_connection
@@ -367,8 +349,17 @@ impl<'a> ModelsManager {
         )
         .map_err(DbError::SqliteError)?;
 
-        self.providers
-    }*/
+        self.providers.update(cx, |providers, cx| {
+            if let Some(provider) = providers.get(&provider_id) {
+                provider.url.update(cx, |provider_url, cx| {
+                    *provider_url = url.into();
+                    cx.notify();
+                });
+            }
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Assoc)]

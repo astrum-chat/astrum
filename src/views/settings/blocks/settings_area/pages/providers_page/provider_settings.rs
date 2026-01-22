@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use gpui::{
-    App, Div, ElementId, Fill, FontWeight, div, ease_out_quint, img, prelude::*, px, radians,
-    relative,
+    App, Div, ElementId, Fill, Focusable, FontWeight, div, ease_out_quint, img, prelude::*, px,
+    radians, relative,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -14,21 +14,33 @@ use gpui_tesserae::{
 };
 use gpui_transitions::WindowUseTransition;
 
+use smol::lock::RwLock;
+
 use crate::{
-    assets::AstrumIconKind, managers::Provider,
+    assets::AstrumIconKind,
+    managers::{Managers, Provider, UniqueId},
     views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
 
 #[derive(IntoElement)]
 pub struct ProviderSettings {
     id: ElementId,
+    managers: Arc<RwLock<Managers>>,
+    provider_id: UniqueId,
     provider: Arc<Provider>,
 }
 
 impl ProviderSettings {
-    pub fn new(id: impl Into<ElementId>, provider: Arc<Provider>) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        managers: Arc<RwLock<Managers>>,
+        provider_id: UniqueId,
+        provider: Arc<Provider>,
+    ) -> Self {
         Self {
             id: id.into(),
+            managers,
+            provider_id,
             provider,
         }
     }
@@ -175,6 +187,46 @@ impl RenderOnce for ProviderSettings {
                         this.opacity(if height >= px(10.) { 1. } else { 0. })
                     }))
                     .when(bottom_section_expanded_delta != 0., |this| {
+                        let input_id = self.id.with_suffix("url_input");
+
+                        let input =
+                            Input::new(self.id.with_suffix("url_input"), url_input_state.clone())
+                                .layer(ThemeLayerKind::Quaternary)
+                                .child_left(Icon::new(AstrumIconKind::Web))
+                                .placeholder("https://example.com");
+
+                        let managers = self.managers.clone();
+                        let provider_id = self.provider_id.clone();
+
+                        let _subs = window.use_keyed_state(
+                            input_id.with_suffix("state:subs"),
+                            cx,
+                            |window, cx| {
+                                let managers = managers.clone();
+                                let provider_id = provider_id.clone();
+                                let url_input_state = url_input_state.clone();
+
+                                window
+                                    .on_focus_out(
+                                        &input.focus_handle(cx),
+                                        cx,
+                                        move |_event, _window, cx| {
+                                            let new_url =
+                                                url_input_state.read(cx).value().to_string();
+                                            let _ = managers
+                                                .write_arc_blocking()
+                                                .models
+                                                .edit_provider_url(
+                                                    cx,
+                                                    provider_id.clone(),
+                                                    new_url,
+                                                );
+                                        },
+                                    )
+                                    .detach();
+                            },
+                        );
+
                         this.child(
                             div()
                                 .w_full()
@@ -196,17 +248,58 @@ impl RenderOnce for ProviderSettings {
                                                 .line_height(relative(1.))
                                                 .child("URL"),
                                         )
-                                        .child(
-                                            Input::new(
-                                                self.id.with_suffix("url_input"),
-                                                url_input_state,
-                                            )
-                                            .layer(ThemeLayerKind::Quaternary)
-                                            .child_left(Icon::new(AstrumIconKind::Web))
-                                            .placeholder("https://example.com"),
-                                        ),
+                                        .child(input),
                                 )
-                                .child(
+                                .child({
+                                    let api_key_input_id = self.id.with_suffix("api_key_input");
+
+                                    let api_key_input = Input::new(
+                                        api_key_input_id.clone(),
+                                        api_key_input_state.clone(),
+                                    )
+                                    .layer(ThemeLayerKind::Quaternary)
+                                    .child_left(Icon::new(AstrumIconKind::Key))
+                                    .placeholder("*************************");
+
+                                    let managers = self.managers.clone();
+                                    let provider_id = self.provider_id.clone();
+
+                                    let _api_key_subs = window.use_keyed_state(
+                                        api_key_input_id.with_suffix("state:subs"),
+                                        cx,
+                                        |window, cx| {
+                                            let managers = managers.clone();
+                                            let provider_id = provider_id.clone();
+                                            let api_key_input_state = api_key_input_state.clone();
+
+                                            window
+                                                .on_focus_out(
+                                                    &api_key_input.focus_handle(cx),
+                                                    cx,
+                                                    move |_event, _window, cx| {
+                                                        let new_api_key = api_key_input_state
+                                                            .read(cx)
+                                                            .value()
+                                                            .to_string();
+                                                        let api_key = if new_api_key.is_empty() {
+                                                            None
+                                                        } else {
+                                                            Some(new_api_key)
+                                                        };
+                                                        let _ = managers
+                                                            .write_arc_blocking()
+                                                            .models
+                                                            .edit_provider_api_key(
+                                                                cx,
+                                                                provider_id.clone(),
+                                                                api_key,
+                                                            );
+                                                    },
+                                                )
+                                                .detach();
+                                        },
+                                    );
+
                                     div()
                                         .flex()
                                         .flex_col()
@@ -219,16 +312,8 @@ impl RenderOnce for ProviderSettings {
                                                 .line_height(relative(1.))
                                                 .child("API Key"),
                                         )
-                                        .child(
-                                            Input::new(
-                                                self.id.with_suffix("api_key_input"),
-                                                api_key_input_state,
-                                            )
-                                            .layer(ThemeLayerKind::Quaternary)
-                                            .child_left(Icon::new(AstrumIconKind::Key))
-                                            .placeholder("*************************"),
-                                        ),
-                                ),
+                                        .child(api_key_input)
+                                }),
                         )
                     }),
             );
