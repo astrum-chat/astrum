@@ -1,171 +1,32 @@
 use std::{sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, Div, ElementId, Fill, FontWeight, Overflow, Pixels, PointRefinement, Window,
-    canvas, deferred, div, ease_out_quint, img, prelude::*, px, radians, relative,
+    App, Div, ElementId, Fill, FontWeight, div, ease_out_quint, img, prelude::*, px, radians,
+    relative,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement, TesseraeIconKind,
-    components::{
-        Button, ButtonVariant, Icon, Input,
-        select::{SelectItemsMap, SelectMenu, SelectState},
-    },
+    components::{Button, ButtonVariant, Icon, Input},
     extensions::clickable::Clickable,
     primitives::{input::InputState, min_w0_wrapper},
     theme::{ThemeExt, ThemeLayerKind},
 };
 use gpui_transitions::WindowUseTransition;
-use smol::lock::RwLock;
 
 use crate::{
-    assets::AstrumIconKind,
-    managers::{Managers, Provider},
-    views::settings::blocks::settings_area::pages::render_settings_page_title,
+    assets::AstrumIconKind, managers::Provider,
+    views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
 
 #[derive(IntoElement)]
-pub struct ProvidersPage {
-    id: ElementId,
-    managers: Arc<RwLock<Managers>>,
-}
-
-impl ProvidersPage {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
-        Self {
-            id: id.into(),
-            managers,
-        }
-    }
-}
-
-impl RenderOnce for ProvidersPage {
-    fn render(self, window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
-        let mut add_provider_menu_state = SelectState::<_, &'static str>::from_window(
-            self.id.with_suffix("select_state"),
-            window,
-            cx,
-            |_window, cx| {
-                let mut map = SelectItemsMap::new();
-
-                map.push_item(cx, "Ollama");
-                map.push_item(cx, "OpenAI");
-                map.push_item(cx, "Anthropic");
-
-                map
-            },
-        );
-
-        add_provider_menu_state.on_item_click(|_checked, state, _item_name, _window, cx| {
-            state.hide_menu(cx);
-        });
-
-        div()
-            .w_full()
-            .h_full()
-            .flex()
-            .flex_col()
-            .gap(px(20.))
-            .child(
-                div()
-                    .w_full()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .gap(px(20.))
-                    .child(render_settings_page_title(
-                        cx,
-                        "Providers",
-                        "Manage and configure inference providers.",
-                    ))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .justify_end()
-                            .child(
-                                deferred(
-                                    Button::new(self.id.with_suffix("add_provider_btn"))
-                                        .icon(AstrumIconKind::ThickPlus)
-                                        .icon_size(px(14.))
-                                        .p(px(8.))
-                                        .rounded(px(6.))
-                                        // This event handler solely exists to ensure event propagation is stoped.
-                                        .on_any_mouse_down(|_event, _window, _cx| ())
-                                        .map(|this| {
-                                            let menu_visible_transition = add_provider_menu_state
-                                                .menu_visible_transition
-                                                .clone();
-
-                                            this.on_click(move |_event, _window, cx| {
-                                                menu_visible_transition.update(cx, |this, cx| {
-                                                    *this = this.toggle();
-                                                    cx.notify();
-                                                });
-                                            })
-                                        }),
-                                )
-                                .priority(1),
-                            )
-                            .child(
-                                div()
-                                    .w_full()
-                                    .w(px(175.))
-                                    .absolute()
-                                    .top_full()
-                                    .right_0()
-                                    .pt(cx.get_theme().layout.padding.md)
-                                    .child(
-                                        SelectMenu::new(
-                                            self.id.with_suffix("add_provider_menu"),
-                                            add_provider_menu_state,
-                                        )
-                                        .layer(ThemeLayerKind::Quaternary),
-                                    ),
-                            ),
-                    ),
-            )
-            .child({
-                let providers = self.managers.read_arc_blocking().models.providers.read(cx);
-
-                match providers.len() {
-                    0 => render_prompt_create_first_provider(cx).into_any_element(),
-                    _ => div()
-                        .id(self.id.clone())
-                        .w_full()
-                        .h_full()
-                        .flex()
-                        .flex_col()
-                        .pb(px(20.))
-                        .gap(px(10.))
-                        .map(|mut this| {
-                            this.style().overflow = PointRefinement {
-                                x: None,
-                                y: Some(Overflow::Scroll),
-                            };
-                            this
-                        })
-                        .children(providers.iter().map(|(provider_id, provider)| {
-                            let provider_id = self
-                                .id
-                                .with_suffix("provider")
-                                .with_suffix(provider_id.to_string());
-                            ProviderSettings::new(provider_id, provider.clone())
-                        }))
-                        .into_any_element(),
-                }
-            })
-    }
-}
-
-#[derive(IntoElement)]
-struct ProviderSettings {
+pub struct ProviderSettings {
     id: ElementId,
     provider: Arc<Provider>,
 }
 
 impl ProviderSettings {
-    fn new(id: impl Into<ElementId>, provider: Arc<Provider>) -> Self {
+    pub fn new(id: impl Into<ElementId>, provider: Arc<Provider>) -> Self {
         Self {
             id: id.into(),
             provider,
@@ -393,49 +254,4 @@ impl RenderOnce for ProviderSettings {
 
 fn divider(color: impl Into<Fill>) -> Div {
     div().w(relative(1.)).h(px(1.)).min_h(px(1.)).bg(color)
-}
-
-trait QueryBounds {
-    fn query_bounds(
-        self,
-        query: impl FnMut(Bounds<Pixels>, &mut Window, &mut App) + 'static,
-    ) -> Self;
-}
-
-impl<E: IntoElement + ParentElement> QueryBounds for E {
-    fn query_bounds(
-        self,
-        mut query: impl FnMut(Bounds<Pixels>, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.child(
-            canvas(
-                |_bounds, _window, _cx| {},
-                move |bounds, _, window, cx| query(bounds, window, cx),
-            )
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full(),
-        )
-    }
-}
-
-fn render_prompt_create_first_provider(cx: &App) -> impl IntoElement {
-    let secondary_text_color = cx.get_theme().variants.active(cx).colors.text.secondary;
-    let body_size = cx.get_theme().layout.text.default_font.sizes.body;
-
-    div()
-        .text_color(secondary_text_color)
-        .text_size(body_size)
-        .w_full()
-        .h(relative(0.75))
-        .flex()
-        .flex_col()
-        .items_center()
-        .justify_center()
-        .child(
-            div().w_full().min_w_0().h_auto().text_center().child(
-                "Press the '+' button in the top right corner to add an inferance provider.",
-            ),
-        )
 }
