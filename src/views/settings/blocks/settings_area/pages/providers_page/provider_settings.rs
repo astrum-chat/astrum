@@ -268,7 +268,8 @@ impl RenderOnce for ProviderSettings {
                         )
                         .layer(ThemeLayerKind::Quaternary)
                         .child_left(Icon::new(AstrumIconKind::Key))
-                        .placeholder("*************************");
+                        .placeholder("*************************")
+                        .transform_text(|_| '*');
 
                         let managers = self.managers.clone();
                         let provider_id = self.provider_id.clone();
