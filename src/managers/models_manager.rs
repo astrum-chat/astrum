@@ -371,6 +371,29 @@ impl<'a> ModelsManager {
 
         Ok(())
     }
+
+    pub fn delete_provider(&mut self, cx: &mut App, provider_id: UniqueId) -> Result<(), DbError> {
+        let provider = self.get_provider(cx, &provider_id)?;
+
+        let db = self
+            .db_connection
+            .as_ref()
+            .ok_or_else(|| DbError::MissingData("db_connection"))?;
+
+        db.execute("DELETE FROM providers WHERE id = ?1", [&provider_id])
+            .map_err(DbError::SqliteError)?;
+
+        let secret_name =
+            Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
+        let _ = remove_secret(&secret_name);
+
+        self.providers.update(cx, |providers, cx| {
+            providers.remove(&provider_id);
+            cx.notify();
+        });
+
+        Ok(())
+    }
 }
 
 #[derive(Assoc)]

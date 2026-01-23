@@ -56,6 +56,9 @@ pub enum AstrumIconKind {
 
     #[assoc(path = "icons/title.svg")]
     Title,
+
+    #[assoc(path = "icons/trash.svg")]
+    Trash,
 }
 
 impl Into<SharedString> for AstrumIconKind {

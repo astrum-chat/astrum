@@ -167,7 +167,7 @@ impl RenderOnce for ProviderSettings {
             )
             .child(info);
 
-        let top_right_content = Button::new(self.id.with_suffix("reveal_settings_btn"))
+        let expand_button = Button::new(self.id.with_suffix("reveal_settings_btn"))
             .variant(ButtonVariant::SecondaryGhost)
             .icon(TesseraeIconKind::ArrowDown)
             .p(px(8.))
@@ -189,6 +189,31 @@ impl RenderOnce for ProviderSettings {
                 );
                 this.icon_rotate(rotation)
             });
+
+        let delete_button = {
+            let managers = self.managers.clone();
+            let provider_id = self.provider_id.clone();
+
+            Button::new(self.id.with_suffix("delete_btn"))
+                .variant(ButtonVariant::DestructiveGhost)
+                .icon(AstrumIconKind::Trash)
+                .p(px(8.))
+                .rounded(px(6.))
+                .on_click(move |_event, _window, cx| {
+                    let _ = managers
+                        .write_arc_blocking()
+                        .models
+                        .delete_provider(cx, provider_id.clone());
+                })
+        };
+
+        let top_right_content = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(padding / 3.)
+            .child(delete_button)
+            .child(expand_button);
 
         let top_content = div()
             .flex()
