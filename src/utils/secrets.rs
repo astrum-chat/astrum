@@ -24,9 +24,11 @@ pub fn set_secret(key: impl AsRef<str>, value: impl AsRef<str>) -> keyring::Resu
 }
 
 pub fn remove_secret(key: impl AsRef<str>) -> keyring::Result<()> {
-    if let Ok(secret) = get_raw_secret(key) {
-        secret.delete_credential()?;
+    match get_raw_secret(key) {
+        Ok(secret) => match secret.delete_credential() {
+            Err(keyring::Error::NoEntry) => Ok(()),
+            res => res,
+        },
+        _ => Ok(()),
     }
-
-    Ok(())
 }

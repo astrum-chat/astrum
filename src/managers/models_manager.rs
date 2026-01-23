@@ -301,6 +301,17 @@ impl<'a> ModelsManager {
         format!("chat.astrum.astrum:provider:{}:{}", name, provider_id)
     }
 
+    pub fn get_provider_api_key(&self, cx: &App, provider_id: &UniqueId) -> Option<String> {
+        let provider = self.providers.read(cx).get(provider_id).cloned()?;
+
+        let secret_name =
+            Self::construct_provider_api_key_name(provider_id, &provider.name.read(cx));
+
+        get_secret(&secret_name)
+            .ok()
+            .map(|s| s.expose_secret().to_string())
+    }
+
     pub fn edit_provider_api_key(
         &mut self,
         cx: &mut App,
@@ -314,7 +325,7 @@ impl<'a> ModelsManager {
 
         match api_key {
             Some(api_key) if !api_key.is_empty() => {
-                let _ = set_secret(&secret_name, &api_key);
+                let _ = set_secret(&secret_name, &api_key).unwrap();
             }
             _ => {
                 let _ = remove_secret(&secret_name);

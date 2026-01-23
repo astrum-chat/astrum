@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use gpui::{
-    App, Div, ElementId, Fill, Focusable, FontWeight, div, ease_out_quint, img, prelude::*, px,
-    radians, relative,
+    App, Div, ElementId, Entity, Fill, Focusable, FontWeight, div, ease_out_quint, img, prelude::*,
+    px, radians, relative,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -21,6 +21,41 @@ use crate::{
     managers::{Managers, Provider, UniqueId},
     views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
+
+fn save_provider_url(
+    managers: &Arc<RwLock<Managers>>,
+    provider_id: &UniqueId,
+    url_input_state: &Entity<InputState>,
+    cx: &mut App,
+) {
+    let new_url = url_input_state.read(cx).value().to_string();
+    let _ =
+        managers
+            .write_arc_blocking()
+            .models
+            .edit_provider_url(cx, provider_id.clone(), new_url);
+}
+
+fn save_provider_api_key(
+    managers: &Arc<RwLock<Managers>>,
+    provider_id: &UniqueId,
+    api_key_input_state: &Entity<InputState>,
+    cx: &mut App,
+) {
+    let new_api_key = api_key_input_state.read(cx).value().to_string();
+
+    let api_key = if new_api_key.is_empty() {
+        None
+    } else {
+        Some(new_api_key)
+    };
+
+    let _ = managers.write_arc_blocking().models.edit_provider_api_key(
+        cx,
+        provider_id.clone(),
+        api_key,
+    );
+}
 
 #[derive(IntoElement)]
 pub struct ProviderSettings {
@@ -67,7 +102,16 @@ impl RenderOnce for ProviderSettings {
         let api_key_input_state = window.use_keyed_state(
             self.id.with_suffix("state:api_key_input"),
             cx,
-            |_window, cx| InputState::new(cx),
+            |_window, cx| {
+                let api_key = self
+                    .managers
+                    .read_arc_blocking()
+                    .models
+                    .get_provider_api_key(cx, &self.provider_id)
+                    .unwrap_or_default();
+
+                InputState::new(cx).initial_value(api_key)
+            },
         );
 
         let bottom_section_content_height = window.use_keyed_state(
@@ -187,43 +231,91 @@ impl RenderOnce for ProviderSettings {
                         this.opacity(if height >= px(10.) { 1. } else { 0. })
                     }))
                     .when(bottom_section_expanded_delta != 0., |this| {
-                        let input_id = self.id.with_suffix("url_input");
-
-                        let input =
+                        let url_input =
                             Input::new(self.id.with_suffix("url_input"), url_input_state.clone())
                                 .layer(ThemeLayerKind::Quaternary)
                                 .child_left(Icon::new(AstrumIconKind::Web))
                                 .placeholder("https://example.com");
 
+                        let api_key_input = Input::new(
+                            self.id.with_suffix("api_key_input"),
+                            api_key_input_state.clone(),
+                        )
+                        .layer(ThemeLayerKind::Quaternary)
+                        .child_left(Icon::new(AstrumIconKind::Key))
+                        .placeholder("*************************");
+
                         let managers = self.managers.clone();
                         let provider_id = self.provider_id.clone();
 
                         let _subs = window.use_keyed_state(
-                            input_id.with_suffix("state:subs"),
+                            self.id.with_suffix("state:input_subs"),
                             cx,
                             |window, cx| {
-                                let managers = managers.clone();
-                                let provider_id = provider_id.clone();
-                                let url_input_state = url_input_state.clone();
+                                {
+                                    let managers = managers.clone();
+                                    let provider_id = provider_id.clone();
+                                    let url_input_state = url_input_state.clone();
 
-                                window
-                                    .on_focus_out(
-                                        &input.focus_handle(cx),
-                                        cx,
-                                        move |_event, _window, cx| {
-                                            let new_url =
-                                                url_input_state.read(cx).value().to_string();
-                                            let _ = managers
-                                                .write_arc_blocking()
-                                                .models
-                                                .edit_provider_url(
+                                    window
+                                        .on_focus_out(
+                                            &url_input.focus_handle(cx),
+                                            cx,
+                                            move |_event, _window, cx| {
+                                                save_provider_url(
+                                                    &managers,
+                                                    &provider_id,
+                                                    &url_input_state,
                                                     cx,
-                                                    provider_id.clone(),
-                                                    new_url,
                                                 );
-                                        },
-                                    )
-                                    .detach();
+                                            },
+                                        )
+                                        .detach();
+                                }
+
+                                {
+                                    let managers = managers.clone();
+                                    let provider_id = provider_id.clone();
+                                    let api_key_input_state = api_key_input_state.clone();
+
+                                    window
+                                        .on_focus_out(
+                                            &api_key_input.focus_handle(cx),
+                                            cx,
+                                            move |_event, _window, cx| {
+                                                save_provider_api_key(
+                                                    &managers,
+                                                    &provider_id,
+                                                    &api_key_input_state,
+                                                    cx,
+                                                );
+                                            },
+                                        )
+                                        .detach();
+                                }
+
+                                {
+                                    let managers = managers.clone();
+                                    let provider_id = provider_id.clone();
+                                    let url_input_state = url_input_state.clone();
+                                    let api_key_input_state = api_key_input_state.clone();
+
+                                    window.on_window_should_close(cx, move |_window, cx| {
+                                        save_provider_url(
+                                            &managers,
+                                            &provider_id,
+                                            &url_input_state,
+                                            cx,
+                                        );
+                                        save_provider_api_key(
+                                            &managers,
+                                            &provider_id,
+                                            &api_key_input_state,
+                                            cx,
+                                        );
+                                        true
+                                    });
+                                }
                             },
                         );
 
@@ -248,58 +340,9 @@ impl RenderOnce for ProviderSettings {
                                                 .line_height(relative(1.))
                                                 .child("URL"),
                                         )
-                                        .child(input),
+                                        .child(url_input),
                                 )
-                                .child({
-                                    let api_key_input_id = self.id.with_suffix("api_key_input");
-
-                                    let api_key_input = Input::new(
-                                        api_key_input_id.clone(),
-                                        api_key_input_state.clone(),
-                                    )
-                                    .layer(ThemeLayerKind::Quaternary)
-                                    .child_left(Icon::new(AstrumIconKind::Key))
-                                    .placeholder("*************************");
-
-                                    let managers = self.managers.clone();
-                                    let provider_id = self.provider_id.clone();
-
-                                    let _api_key_subs = window.use_keyed_state(
-                                        api_key_input_id.with_suffix("state:subs"),
-                                        cx,
-                                        |window, cx| {
-                                            let managers = managers.clone();
-                                            let provider_id = provider_id.clone();
-                                            let api_key_input_state = api_key_input_state.clone();
-
-                                            window
-                                                .on_focus_out(
-                                                    &api_key_input.focus_handle(cx),
-                                                    cx,
-                                                    move |_event, _window, cx| {
-                                                        let new_api_key = api_key_input_state
-                                                            .read(cx)
-                                                            .value()
-                                                            .to_string();
-                                                        let api_key = if new_api_key.is_empty() {
-                                                            None
-                                                        } else {
-                                                            Some(new_api_key)
-                                                        };
-                                                        let _ = managers
-                                                            .write_arc_blocking()
-                                                            .models
-                                                            .edit_provider_api_key(
-                                                                cx,
-                                                                provider_id.clone(),
-                                                                api_key,
-                                                            );
-                                                    },
-                                                )
-                                                .detach();
-                                        },
-                                    );
-
+                                .child(
                                     div()
                                         .flex()
                                         .flex_col()
@@ -312,8 +355,8 @@ impl RenderOnce for ProviderSettings {
                                                 .line_height(relative(1.))
                                                 .child("API Key"),
                                         )
-                                        .child(api_key_input)
-                                }),
+                                        .child(api_key_input),
+                                ),
                         )
                     }),
             );
