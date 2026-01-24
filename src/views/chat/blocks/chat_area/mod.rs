@@ -89,6 +89,8 @@ impl RenderOnce for ChatArea {
         );
 
         let chat_box = Input::new(self.id.with_suffix("chat_box"), chat_box_input_state)
+            .max_lines(12)
+            //.wrap(true)
             .placeholder("Type your message here...")
             .rounded(cx.get_theme().layout.corner_radii.lg)
             .gap(px(4.))
@@ -102,6 +104,7 @@ impl RenderOnce for ChatArea {
                 div()
                     .flex()
                     .items_start()
+                    .min_h_auto()
                     .gap(px(7.))
                     .justify_between()
                     .flex_wrap()
