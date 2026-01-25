@@ -17,6 +17,10 @@
 - **Multi-Provider Support** — Connect to OpenAI, Anthropic, or Ollama with a unified interface
 - **Local-First** — All conversations persist in a local SQLite database
 
+<p align="center">
+  <img src="assets/readme/demo.png" alt="Astrum Demo" width="600">
+</p>
+
 - - -
 
 ## Installation
