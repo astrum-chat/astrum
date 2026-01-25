@@ -122,6 +122,17 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         cx,
     );
 
+    // Check if there are any providers (disable buttons if none)
+    let has_no_providers = providers_entity.read(cx).is_empty();
+
+    // Check if a model is selected (disable send button if not)
+    let has_no_model = elem
+        .managers
+        .read_blocking()
+        .models
+        .get_current_model(cx)
+        .is_none();
+
     // Get menu visibility for arrow rotation
     let menu_visible_delta = models_state_for_toggle
         .menu_visible_transition
@@ -133,6 +144,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             Toggle::new(elem.id.with_suffix("switch_llm_btn"))
                 .w_auto()
                 .variant(ToggleVariant::Secondary)
+                .disabled(has_no_providers)
                 .text(
                     models_state_for_toggle
                         .get_selected_item_name(cx)
@@ -193,6 +205,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             .icon(AstrumIconKind::Send)
             .icon_size(px(18.))
             .p(px(9.))
+            .disabled(has_no_providers || has_no_model)
             .map(|this| {
                 let chat_box_input_state = chat_box_input_state.clone();
                 let managers = elem.managers.clone();
