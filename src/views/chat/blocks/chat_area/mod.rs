@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyml::{ChatOptions, MessageRole};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
-    SharedString, Window, div, prelude::*, px, radians,
+    SharedString, Window, deferred, div, prelude::*, px, radians,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -25,7 +25,7 @@ mod prompt_new_chat;
 use prompt_new_chat::render_prompt_new_chat;
 
 mod models_menu;
-use models_menu::{create_models_select_state, fetch_all_models};
+use models_menu::{create_models_select_state, fetch_all_models, observe_providers_for_refresh};
 
 #[derive(IntoElement)]
 pub struct ChatArea {
@@ -113,6 +113,10 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     let models_state_for_menu = models_state_for_toggle.clone();
     let managers_for_toggle = elem.managers.clone();
 
+    // Observe providers and clear menu when they change
+    let providers_entity = elem.managers.read_blocking().models.providers.clone();
+    observe_providers_for_refresh(&providers_entity, models_state_for_toggle.clone(), cx);
+
     // Get menu visibility for arrow rotation
     let menu_visible_delta = models_state_for_toggle
         .menu_visible_transition
@@ -120,7 +124,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         .value();
 
     let chat_box_left_items = div()
-        .child(
+        .child(deferred(
             Toggle::new(elem.id.with_suffix("switch_llm_btn"))
                 .w_auto()
                 .variant(ToggleVariant::Secondary)
@@ -149,7 +153,6 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                         }),
                 )
                 .on_click(move |_checked, _window, cx| {
-                    // Toggle menu visibility
                     models_state_for_toggle.toggle_menu(cx);
 
                     // Fetch models if not already loaded
@@ -161,7 +164,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                         );
                     }
                 }),
-        )
+        ))
         .child(
             div()
                 .w(px(250.))

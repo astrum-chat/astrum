@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
-use gpui::{App, AsyncApp, ElementId, Hsla, IntoElement, SharedString, Window, div, prelude::*};
+use gpui::{
+    App, AsyncApp, ElementId, Entity, Hsla, IntoElement, SharedString, Window, div, prelude::*,
+};
 use gpui_tesserae::{
     ElementIdExt,
     components::select::{SelectItem, SelectItemsMap, SelectState},
 };
 use smol::lock::RwLock;
 
-use crate::{Managers, managers::UniqueId};
+use crate::{Managers, managers::Provider, managers::UniqueId, utils::FrontInsertMap};
 
 /// Value type for ModelSelectItem containing both provider and model info.
 #[derive(Clone)]
@@ -162,6 +164,22 @@ pub fn fetch_all_models(
                 }
             }
         }
+    })
+    .detach();
+}
+
+/// Observes the providers entity and clears the models menu when providers change.
+/// This ensures the menu is refreshed with updated provider/model data on next open.
+pub fn observe_providers_for_refresh(
+    providers: &Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
+    state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
+    cx: &mut App,
+) {
+    cx.observe(providers, move |_, cx| {
+        state.items.update(cx, |items, cx| {
+            *items = SelectItemsMap::new();
+            cx.notify();
+        });
     })
     .detach();
 }
