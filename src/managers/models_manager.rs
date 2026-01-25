@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use anyml::{AnthropicProvider, OllamaProvider, OpenAiProvider, ProviderTrait};
+use anyml::{
+    AnthropicProvider, OllamaProvider, OpenAiProvider,
+    providers::{chat::ChatProvider, list_models::ListModelsProvider},
+};
 use chrono::Utc;
 use enum_assoc::Assoc;
 use gpui::{App, AppContext, Entity, SharedString};
@@ -9,6 +12,9 @@ use rusqlite::{
     types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
 };
 use secrecy::{ExposeSecret, SecretString};
+
+pub trait ProviderTrait: ChatProvider + ListModelsProvider {}
+impl<T: ChatProvider + ListModelsProvider> ProviderTrait for T {}
 
 use crate::{
     anyhttp_gpui::GpuiHttpWrapper,

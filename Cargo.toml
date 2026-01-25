@@ -5,11 +5,13 @@ edition = "2024"
 
 
 [dependencies]
-# gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
-# anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
+gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
+anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
+granular_btreemap = { git = "https://github.com/astrum-chat/astrum" }
 # Local development.
-gpui_tesserae = { path = "../gpui_tesserae" }
-anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
+# gpui_tesserae = { path = "../gpui_tesserae" }
+# anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
+# granular_btreemap = { path = "crates/granular_btreemap" }
 
 gpui = "0.2.2"
 gpui_squircle = { git = "https://github.com/astrum-chat/gpui_squircle" }
@@ -38,9 +40,6 @@ serde_json = { version = "1.0.145", features = ["raw_value"] }
 thiserror = "2.0.17"
 rusqlite = { version = "0.37.0", features = ["bundled", "chrono"] }
 chrono = "0.4.42"
-
-granular_btreemap = { path = "crates/granular_btreemap" }
-
 phf = { version = "0.13.1", features = ["macros"] }
 
 # Secrets manager.
