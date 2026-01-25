@@ -10,8 +10,6 @@
 
 ## About
 
-Astrum is a local-first LLM chat app.
-
 > It's still a bit rough around the edges and is still missing some features such as: chat titles, thinking, web search, markdown and message cancellation.
 
 ## Features
