@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyml::{AnthropicProvider, ChatProvider, OllamaProvider, OpenAiProvider};
+use anyml::{AnthropicProvider, OllamaProvider, OpenAiProvider, ProviderTrait};
 use chrono::Utc;
 use enum_assoc::Assoc;
 use gpui::{App, AppContext, Entity, SharedString};
@@ -59,21 +59,7 @@ impl<'a> ModelsManager {
             .load_providers_from_db(cx, db_connection.clone())
             .unwrap();
 
-        self.set_current_model(cx, "deepseek-r1:14b");
-
         self.db_connection = Some(db_connection);
-
-        /*for count in 0..5 {
-            self.new_provider(
-                cx,
-                ProviderKind::Ollama,
-                ProviderKind::Ollama.default_name(),
-                ProviderKind::Ollama.default_url(),
-                None,
-                None,
-            )
-            .unwrap();
-        }*/
     }
 
     pub fn get_current_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
@@ -270,7 +256,7 @@ impl<'a> ModelsManager {
         icon: String,
         http_client: GpuiHttpWrapper,
     ) -> Option<()> {
-        let provider: Arc<dyn ChatProvider> = match kind {
+        let inner: Arc<dyn ProviderTrait> = match kind {
             ProviderKind::Ollama => Arc::new(OllamaProvider::new(http_client).url(url.clone())),
             ProviderKind::OpenAi => {
                 let provider_api_key =
@@ -289,7 +275,7 @@ impl<'a> ModelsManager {
         };
 
         self.providers.update(cx, |providers, cx| {
-            let provider = Arc::new(Provider::new(cx, provider, name, url, icon));
+            let provider = Arc::new(Provider::new(cx, inner, name, url, icon));
             providers.insert_front(provider_id.clone(), provider);
             cx.notify();
         });
@@ -447,7 +433,7 @@ impl FromSql for ProviderKind {
 
 #[derive(Clone)]
 pub struct Provider {
-    pub inner: Arc<dyn ChatProvider>,
+    pub inner: Arc<dyn ProviderTrait>,
     pub name: Entity<SharedString>,
     pub url: Entity<SharedString>,
     pub icon: Entity<SharedString>,
@@ -456,7 +442,7 @@ pub struct Provider {
 impl Provider {
     fn new(
         cx: &mut App,
-        inner: Arc<dyn ChatProvider>,
+        inner: Arc<dyn ProviderTrait>,
         name: impl Into<SharedString>,
         url: impl Into<SharedString>,
         icon: impl Into<SharedString>,

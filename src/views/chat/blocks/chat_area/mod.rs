@@ -3,15 +3,15 @@ use std::sync::Arc;
 use anyml::{ChatOptions, MessageRole};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
-    SharedString, Window, div, prelude::*, px,
+    SharedString, Window, div, prelude::*, px, radians,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement, TesseraeIconKind,
-    components::{Button, Icon, Input, Toggle, ToggleVariant},
+    components::{Button, Icon, Input, Toggle, ToggleVariant, select::SelectMenu},
     extensions::clickable::Clickable,
     primitives::input::InputState,
-    theme::ThemeExt,
+    theme::{ThemeExt, ThemeLayerKind},
 };
 use serde_json::value::RawValue;
 use smol::lock::{RwLock, RwLockReadGuard};
@@ -23,6 +23,9 @@ use existing_chat::render_existing_chat;
 
 mod prompt_new_chat;
 use prompt_new_chat::render_prompt_new_chat;
+
+mod models_menu;
+use models_menu::{create_models_select_state, fetch_all_models};
 
 #[derive(IntoElement)]
 pub struct ChatArea {
@@ -101,21 +104,80 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
 
-    let chat_box_left_items = Toggle::new(elem.id.with_suffix("switch_llm_btn"))
-        .w_auto()
-        .variant(ToggleVariant::Secondary)
-        .text(
-            elem.managers
-                .read_blocking()
-                .models
-                .get_current_model(cx)
-                .map(|this| this.to_string())
-                .unwrap_or_else(|| "No model selected".to_string()),
+    // Create models select state
+    let models_select_state =
+        create_models_select_state(elem.id.clone(), elem.managers.clone(), window, cx);
+
+    // Clone for use in the toggle click handler
+    let models_state_for_toggle = Arc::new(models_select_state);
+    let models_state_for_menu = models_state_for_toggle.clone();
+    let managers_for_toggle = elem.managers.clone();
+
+    // Get menu visibility for arrow rotation
+    let menu_visible_delta = models_state_for_toggle
+        .menu_visible_transition
+        .evaluate(window, cx)
+        .value();
+
+    let chat_box_left_items = div()
+        .child(
+            Toggle::new(elem.id.with_suffix("switch_llm_btn"))
+                .w_auto()
+                .variant(ToggleVariant::Secondary)
+                .text(
+                    models_state_for_toggle
+                        .get_selected_item_name(cx)
+                        .map(|name| name.to_string())
+                        .unwrap_or_else(|| {
+                            elem.managers
+                                .read_blocking()
+                                .models
+                                .get_current_model(cx)
+                                .map(|this| this.to_string())
+                                .unwrap_or_else(|| "No model selected".to_string())
+                        }),
+                )
+                .child_right(
+                    Icon::new(TesseraeIconKind::ArrowDown)
+                        .color(primary_text_color)
+                        .size(px(11.))
+                        .map(|this| {
+                            let rotation = radians(
+                                ((1. - menu_visible_delta) * 180.) * std::f32::consts::PI / 180.0,
+                            );
+                            this.rotate(rotation)
+                        }),
+                )
+                .on_click(move |_checked, _window, cx| {
+                    // Toggle menu visibility
+                    models_state_for_toggle.toggle_menu(cx);
+
+                    // Fetch models if not already loaded
+                    if models_state_for_toggle.items.read(cx).is_empty() {
+                        fetch_all_models(
+                            managers_for_toggle.clone(),
+                            models_state_for_toggle.clone(),
+                            cx,
+                        );
+                    }
+                }),
         )
-        .child_right(
-            Icon::new(TesseraeIconKind::ArrowDown)
-                .color(primary_text_color)
-                .size(px(11.)),
+        .child(
+            div()
+                .w(px(250.))
+                .absolute()
+                .bottom_full()
+                .left_0()
+                .pb(cx.get_theme().layout.padding.md)
+                .child(
+                    SelectMenu::new(
+                        elem.id.with_suffix("models_select_menu"),
+                        models_state_for_menu,
+                    )
+                    .layer(ThemeLayerKind::Quaternary)
+                    .w(px(250.))
+                    .max_h(px(350.)),
+                ),
         );
 
     let chat_box_right_items = div().flex().flex_row_reverse().gap(px(7.)).child(

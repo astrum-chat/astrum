@@ -1,6 +1,6 @@
 use std::{cmp::Reverse, sync::Arc};
 
-use anyml::{Message, MessageRole};
+use anyml::models::{Message, MessageRole};
 use chrono::{NaiveDateTime, Utc};
 use gpui::{App, AppContext, Entity};
 use indexmap::IndexMap;
@@ -217,7 +217,7 @@ impl<'a> Chat {
                 Ok((
                     message_id.clone(),
                     MessageWithMetadata {
-                        message: anyml::Message {
+                        message: Message {
                             content,
                             role: MessageRole::from_str(&role),
                         },

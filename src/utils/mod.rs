@@ -6,3 +6,6 @@ pub use front_insert_map::*;
 
 pub mod secrets;
 pub mod strings;
+
+mod bounds;
+pub use bounds::*;
