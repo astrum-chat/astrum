@@ -219,30 +219,42 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             }),
     );
 
-    Input::new(elem.id.with_suffix("chat_box"), chat_box_input_state)
-        .line_clamp(12)
-        .word_wrap(true)
-        .newline_on_shift_enter(true)
-        .placeholder("Type your message here...")
-        .rounded(cx.get_theme().layout.corner_radii.lg)
-        .gap(px(4.))
-        .p(px(14.))
-        .inner_pl(px(11.))
-        .inner_pr(px(11.))
-        .inner_pt(px(5.))
-        .inner_pb(px(5.))
-        .text_size(text_heading_sm_size)
-        .child_bottom(
-            div()
-                .flex()
-                .items_start()
-                .min_h_auto()
-                .gap(px(7.))
-                .justify_between()
-                .flex_wrap()
-                .child(chat_box_left_items)
-                .child(chat_box_right_items),
-        )
+    Input::new(
+        elem.id.with_suffix("chat_box"),
+        chat_box_input_state.clone(),
+    )
+    .line_clamp(12)
+    .word_wrap(true)
+    .newline_on_shift_enter(true)
+    .on_enter({
+        let chat_box_input_state = chat_box_input_state.clone();
+        let managers = elem.managers.clone();
+        move |_window, cx| {
+            let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
+            let Some(contents) = contents else { return };
+            send_message(managers.read_blocking(), contents, cx);
+        }
+    })
+    .placeholder("Type your message here...")
+    .rounded(cx.get_theme().layout.corner_radii.lg)
+    .gap(px(4.))
+    .p(px(14.))
+    .inner_pl(px(11.))
+    .inner_pr(px(11.))
+    .inner_pt(px(5.))
+    .inner_pb(px(5.))
+    .text_size(text_heading_sm_size)
+    .child_bottom(
+        div()
+            .flex()
+            .items_start()
+            .min_h_auto()
+            .gap(px(7.))
+            .justify_between()
+            .flex_wrap()
+            .child(chat_box_left_items)
+            .child(chat_box_right_items),
+    )
 }
 
 fn send_message(
