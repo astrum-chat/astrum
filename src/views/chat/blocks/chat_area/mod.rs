@@ -115,7 +115,12 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     // Observe providers and clear menu when they change
     let providers_entity = elem.managers.read_blocking().models.providers.clone();
-    observe_providers_for_refresh(&providers_entity, models_state_for_toggle.clone(), cx);
+    observe_providers_for_refresh(
+        &providers_entity,
+        models_state_for_toggle.clone(),
+        elem.managers.clone(),
+        cx,
+    );
 
     // Get menu visibility for arrow rotation
     let menu_visible_delta = models_state_for_toggle

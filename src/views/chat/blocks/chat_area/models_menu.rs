@@ -169,17 +169,33 @@ pub fn fetch_all_models(
 }
 
 /// Observes the providers entity and clears the models menu when providers change.
-/// This ensures the menu is refreshed with updated provider/model data on next open.
+/// Also deselects the current model if its provider no longer exists.
 pub fn observe_providers_for_refresh(
     providers: &Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
+    managers: Arc<RwLock<Managers>>,
     cx: &mut App,
 ) {
-    cx.observe(providers, move |_, cx| {
+    cx.observe(providers, move |providers, cx| {
+        // Clear the menu items
         state.items.update(cx, |items, cx| {
             *items = SelectItemsMap::new();
             cx.notify();
         });
+
+        // Clear the SelectState selection
+        state.remove_selection(cx);
+
+        // Check if current provider still exists, if not clear the manager selection
+        let mut managers = managers.write_arc_blocking();
+        let current_provider_id = managers.models.current_provider_id.read(cx).clone();
+
+        if let Some(provider_id) = current_provider_id {
+            let provider_exists = providers.read(cx).get(&provider_id).is_some();
+            if !provider_exists {
+                managers.models.clear_current_selection(cx);
+            }
+        }
     })
     .detach();
 }

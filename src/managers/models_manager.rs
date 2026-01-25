@@ -21,7 +21,7 @@ use crate::{
 pub struct ModelsManager {
     db_connection: Option<Arc<rusqlite::Connection>>,
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
-    current_provider_id: Entity<Option<UniqueId>>,
+    pub current_provider_id: Entity<Option<UniqueId>>,
     current_model: Entity<Option<String>>,
 }
 
@@ -191,6 +191,17 @@ impl<'a> ModelsManager {
     pub fn set_current_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
         cx.update_entity(&self.current_model, |current_model, cx| {
             *current_model = Some(model_name.into());
+            cx.notify();
+        });
+    }
+
+    pub fn clear_current_selection(&mut self, cx: &mut App) {
+        cx.update_entity(&self.current_provider_id, |current_provider_id, cx| {
+            *current_provider_id = None;
+            cx.notify();
+        });
+        cx.update_entity(&self.current_model, |current_model, cx| {
+            *current_model = None;
             cx.notify();
         });
     }
