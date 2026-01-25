@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyml::{ChatOptions, MessageRole};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
-    SharedString, div, prelude::*, px,
+    SharedString, Window, div, prelude::*, px,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -48,69 +48,6 @@ impl RenderOnce for ChatArea {
             .colors
             .background
             .secondary;
-        let primary_text_color = cx.get_theme().variants.active(cx).colors.text.primary;
-        let text_heading_sm_size = cx.get_theme().layout.text.default_font.sizes.heading_sm;
-
-        let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
-
-        let chat_box_left_items = Toggle::new(self.id.with_suffix("switch_llm_btn"))
-            .w_auto()
-            .variant(ToggleVariant::Secondary)
-            .text(
-                self.managers
-                    .read_blocking()
-                    .models
-                    .get_current_model(cx)
-                    .map(|this| this.to_string())
-                    .unwrap_or_else(|| "No model selected".to_string()),
-            )
-            .child_right(
-                Icon::new(TesseraeIconKind::ArrowDown)
-                    .color(primary_text_color)
-                    .size(px(11.)),
-            );
-
-        let chat_box_right_items = div().flex().flex_row_reverse().gap(px(7.)).child(
-            Button::new(self.id.with_suffix("send_msg_btn"))
-                .icon(AstrumIconKind::Send)
-                .icon_size(px(18.))
-                .p(px(9.))
-                .map(|this| {
-                    let chat_box_input_state = chat_box_input_state.clone();
-                    let managers = self.managers.clone();
-
-                    this.on_click(move |_event, _window, cx| {
-                        let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
-                        let Some(contents) = contents else { return };
-
-                        send_message(managers.read_blocking(), contents, cx);
-                    })
-                }),
-        );
-
-        let chat_box = Input::new(self.id.with_suffix("chat_box"), chat_box_input_state)
-            .max_lines(12)
-            //.wrap(true)
-            .placeholder("Type your message here...")
-            .rounded(cx.get_theme().layout.corner_radii.lg)
-            .gap(px(4.))
-            .p(px(14.))
-            .inner_pl(px(11.))
-            .inner_pr(px(11.))
-            .inner_pt(px(5.))
-            .inner_pb(px(5.))
-            .text_size(text_heading_sm_size)
-            .child_bottom(
-                div()
-                    .flex()
-                    .items_start()
-                    .min_h_auto()
-                    .gap(px(7.))
-                    .justify_between()
-                    .flex_wrap()
-                    .child(chat_box_left_items)
-                    .child(chat_box_right_items),
-            );
 
         div()
             .id(self.id.clone())
@@ -147,9 +84,82 @@ impl RenderOnce for ChatArea {
                             _ => this.child(render_prompt_new_chat(window, cx)),
                         }
                     })
-                    .child(div().w_full().p(px(20.)).pt(px(0.)).child(chat_box)),
+                    .child(
+                        div()
+                            .w_full()
+                            .p(px(20.))
+                            .pt(px(0.))
+                            .child(chat_box(&self, window, cx)),
+                    ),
             )
     }
+}
+
+fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
+    let primary_text_color = cx.get_theme().variants.active(cx).colors.text.primary;
+    let text_heading_sm_size = cx.get_theme().layout.text.default_font.sizes.heading_sm;
+
+    let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
+
+    let chat_box_left_items = Toggle::new(elem.id.with_suffix("switch_llm_btn"))
+        .w_auto()
+        .variant(ToggleVariant::Secondary)
+        .text(
+            elem.managers
+                .read_blocking()
+                .models
+                .get_current_model(cx)
+                .map(|this| this.to_string())
+                .unwrap_or_else(|| "No model selected".to_string()),
+        )
+        .child_right(
+            Icon::new(TesseraeIconKind::ArrowDown)
+                .color(primary_text_color)
+                .size(px(11.)),
+        );
+
+    let chat_box_right_items = div().flex().flex_row_reverse().gap(px(7.)).child(
+        Button::new(elem.id.with_suffix("send_msg_btn"))
+            .icon(AstrumIconKind::Send)
+            .icon_size(px(18.))
+            .p(px(9.))
+            .map(|this| {
+                let chat_box_input_state = chat_box_input_state.clone();
+                let managers = elem.managers.clone();
+
+                this.on_click(move |_event, _window, cx| {
+                    let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
+                    let Some(contents) = contents else { return };
+
+                    send_message(managers.read_blocking(), contents, cx);
+                })
+            }),
+    );
+
+    Input::new(elem.id.with_suffix("chat_box"), chat_box_input_state)
+        .line_clamp(12)
+        .word_wrap(true)
+        .newline_on_shift_enter(true)
+        .placeholder("Type your message here...")
+        .rounded(cx.get_theme().layout.corner_radii.lg)
+        .gap(px(4.))
+        .p(px(14.))
+        .inner_pl(px(11.))
+        .inner_pr(px(11.))
+        .inner_pt(px(5.))
+        .inner_pb(px(5.))
+        .text_size(text_heading_sm_size)
+        .child_bottom(
+            div()
+                .flex()
+                .items_start()
+                .min_h_auto()
+                .gap(px(7.))
+                .justify_between()
+                .flex_wrap()
+                .child(chat_box_left_items)
+                .child(chat_box_right_items),
+        )
 }
 
 fn send_message(
