@@ -230,9 +230,17 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
         move |_window, cx| {
+            // Don't send if no provider or model is selected
+            let managers_guard = managers.read_blocking();
+            if managers_guard.models.get_current_provider(cx).is_none()
+                || managers_guard.models.get_current_model(cx).is_none()
+            {
+                return;
+            }
+
             let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
             let Some(contents) = contents else { return };
-            send_message(managers.read_blocking(), contents, cx);
+            send_message(managers_guard, contents, cx);
         }
     })
     .placeholder("Type your message here...")
