@@ -9,7 +9,7 @@ use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement, TesseraeIconKind,
     components::{Button, Icon, Input, Toggle, ToggleVariant, select::SelectMenu},
-    extensions::clickable::Clickable,
+    extensions::mouse_handleable::MouseHandleable,
     primitives::input::InputState,
     theme::{ThemeExt, ThemeLayerKind},
 };
@@ -57,7 +57,9 @@ impl RenderOnce for ChatArea {
             .tab_group()
             .tab_index(1)
             .tab_stop(false)
-            .size_full()
+            .flex_1()
+            .min_w_0()
+            .h_full()
             .flex()
             .justify_center()
             .child(
@@ -229,7 +231,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     .on_enter({
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
-        move |_window, cx| {
+        move |window, cx| {
             // Don't send if no provider or model is selected
             let managers_guard = managers.read_blocking();
             if managers_guard.models.get_current_provider(cx).is_none()
@@ -239,6 +241,9 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             }
 
             let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
+
+            window.blur();
+
             let Some(contents) = contents else { return };
             send_message(managers_guard, contents, cx);
         }

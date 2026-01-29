@@ -9,3 +9,6 @@ pub mod strings;
 
 mod bounds;
 pub use bounds::*;
+
+mod colors;
+pub use colors::*;

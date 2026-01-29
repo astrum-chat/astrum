@@ -30,6 +30,7 @@ impl Render for ChatView {
         div()
             .text_size(cx.get_theme().layout.text.default_font.sizes.body)
             .size_full()
+            .max_w_full()
             .bg(cx.get_theme().variants.active(cx).colors.background.primary)
             .flex()
             .pr(px(10.))

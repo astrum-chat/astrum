@@ -7,7 +7,7 @@ use gpui::{
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement,
     components::{Button, ButtonVariant, Icon, Input, Toggle, ToggleVariant},
-    extensions::clickable::Clickable,
+    extensions::mouse_handleable::MouseHandleable,
     primitives::input::InputState,
     theme::ThemeExt,
 };

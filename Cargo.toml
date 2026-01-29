@@ -7,11 +7,10 @@ edition = "2024"
 [dependencies]
 gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
 anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
-granular_btreemap = { git = "https://github.com/astrum-chat/astrum" }
 # Local development.
 # gpui_tesserae = { path = "../gpui_tesserae" }
-# anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
-# granular_btreemap = { path = "crates/granular_btreemap" }
+#anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
+granular_btreemap = { path = "crates/granular_btreemap" }
 
 gpui = "0.2.2"
 gpui_squircle = { git = "https://github.com/astrum-chat/gpui_squircle" }

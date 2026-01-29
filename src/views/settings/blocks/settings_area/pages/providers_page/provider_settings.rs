@@ -8,7 +8,7 @@ use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement, TesseraeIconKind,
     components::{Button, ButtonVariant, Icon, Input},
-    extensions::clickable::Clickable,
+    extensions::mouse_handleable::MouseHandleable,
     primitives::{input::InputState, min_w0_wrapper},
     theme::{ThemeExt, ThemeLayerKind},
 };

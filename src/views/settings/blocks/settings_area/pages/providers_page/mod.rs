@@ -10,7 +10,7 @@ use gpui_tesserae::{
         Button,
         select::{SelectItemsMap, SelectMenu, SelectState},
     },
-    extensions::clickable::Clickable,
+    extensions::mouse_handleable::MouseHandleable,
     theme::{ThemeExt, ThemeLayerKind},
 };
 use smol::lock::RwLock;
