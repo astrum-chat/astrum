@@ -208,7 +208,7 @@ pub fn observe_providers_for_refresh(
 
         // Check if current provider still exists, if not clear the manager selection
         let mut managers = managers.write_arc_blocking();
-        let current_provider_id = managers.models.current_provider_id.read(cx).clone();
+        let current_provider_id = managers.models.current_model.provider_id.read(cx).clone();
 
         if let Some(provider_id) = current_provider_id {
             let provider_exists = providers.read(cx).get(&provider_id).is_some();

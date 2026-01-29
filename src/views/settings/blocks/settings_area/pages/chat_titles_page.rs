@@ -4,7 +4,7 @@ use gpui::{App, ElementId, Overflow, PointRefinement, Window, div, prelude::*, p
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt,
-    components::select::Select,
+    components::select::{Select, SelectItem},
     primitives::min_w0_wrapper,
     theme::{ThemeExt, ThemeLayerKind},
 };
@@ -86,14 +86,32 @@ fn render_model_picker(
     let padding = cx.get_theme().layout.padding.xl;
 
     // Create model picker with custom on_item_click for chat titles page
+    let managers_for_callback = managers.clone();
     let picker = ModelPicker::new(
         id.clone(),
         managers,
         true,
-        Some(Box::new(|checked, state, item_name, _window, cx| {
-            println!("hello world");
+        Some(Box::new(move |checked, state, item_name, _window, cx| {
             if checked {
-                let _ = state.select_item(cx, item_name);
+                let _ = state.select_item(cx, item_name.clone());
+
+                // Get the selected item's value
+                let selection = {
+                    let items = state.items.read(cx);
+                    items
+                        .get(&item_name)
+                        .map(|entry| entry.item.value().clone())
+                };
+
+                if let Some(selection) = selection {
+                    let mut managers = managers_for_callback.write_arc_blocking();
+                    managers
+                        .models
+                        .set_chat_titles_provider(cx, selection.provider_id);
+                    managers
+                        .models
+                        .set_chat_titles_model(cx, selection.model_id);
+                }
             }
             state.hide_menu(cx);
         })),

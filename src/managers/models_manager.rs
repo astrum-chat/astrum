@@ -24,11 +24,16 @@ use crate::{
     utils::FrontInsertMap,
 };
 
+pub struct ProviderModelPair {
+    pub provider_id: Entity<Option<UniqueId>>,
+    pub model: Entity<Option<String>>,
+}
+
 pub struct ModelsManager {
     db_connection: Option<Arc<rusqlite::Connection>>,
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
-    pub current_provider_id: Entity<Option<UniqueId>>,
-    current_model: Entity<Option<String>>,
+    pub current_model: ProviderModelPair,
+    pub chat_titles_model: ProviderModelPair,
 }
 
 impl<'a> ModelsManager {
@@ -36,8 +41,14 @@ impl<'a> ModelsManager {
         Self {
             db_connection: None,
             providers: cx.new(move |_cx| FrontInsertMap::new()),
-            current_provider_id: cx.new(|_cx| None),
-            current_model: cx.new(|_cx| None),
+            current_model: ProviderModelPair {
+                provider_id: cx.new(|_cx| None),
+                model: cx.new(|_cx| None),
+            },
+            chat_titles_model: ProviderModelPair {
+                provider_id: cx.new(|_cx| None),
+                model: cx.new(|_cx| None),
+            },
         }
     }
 
@@ -69,7 +80,8 @@ impl<'a> ModelsManager {
     }
 
     pub fn get_current_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
-        self.current_provider_id
+        self.current_model
+            .provider_id
             .read(cx)
             .as_ref()
             .map(|this| self.providers.read(cx).get(this))
@@ -77,10 +89,13 @@ impl<'a> ModelsManager {
     }
 
     pub fn set_current_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
-        cx.update_entity(&self.current_provider_id, |current_provider_id, cx| {
-            *current_provider_id = Some(provider_id);
-            cx.notify();
-        });
+        cx.update_entity(
+            &self.current_model.provider_id,
+            |current_provider_id, cx| {
+                *current_provider_id = Some(provider_id);
+                cx.notify();
+            },
+        );
     }
 
     pub fn get_provider(
@@ -191,23 +206,53 @@ impl<'a> ModelsManager {
     }
 
     pub fn get_current_model(&'a self, cx: &'a App) -> Option<&'a String> {
-        self.current_model.read(cx).as_ref()
+        self.current_model.model.read(cx).as_ref()
     }
 
     pub fn set_current_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
-        cx.update_entity(&self.current_model, |current_model, cx| {
-            *current_model = Some(model_name.into());
+        cx.update_entity(&self.current_model.model, |model, cx| {
+            *model = Some(model_name.into());
             cx.notify();
         });
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
-        cx.update_entity(&self.current_provider_id, |current_provider_id, cx| {
-            *current_provider_id = None;
+        cx.update_entity(&self.current_model.provider_id, |provider_id, cx| {
+            *provider_id = None;
             cx.notify();
         });
-        cx.update_entity(&self.current_model, |current_model, cx| {
-            *current_model = None;
+        cx.update_entity(&self.current_model.model, |model, cx| {
+            *model = None;
+            cx.notify();
+        });
+    }
+
+    pub fn get_chat_titles_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
+        self.chat_titles_model
+            .provider_id
+            .read(cx)
+            .as_ref()
+            .map(|this| self.providers.read(cx).get(this))
+            .flatten()
+    }
+
+    pub fn set_chat_titles_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
+        cx.update_entity(
+            &self.chat_titles_model.provider_id,
+            |current_provider_id, cx| {
+                *current_provider_id = Some(provider_id);
+                cx.notify();
+            },
+        );
+    }
+
+    pub fn get_chat_titles_model(&'a self, cx: &'a App) -> Option<&'a String> {
+        self.chat_titles_model.model.read(cx).as_ref()
+    }
+
+    pub fn set_chat_titles_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
+        cx.update_entity(&self.chat_titles_model.model, |model, cx| {
+            *model = Some(model_name.into());
             cx.notify();
         });
     }
