@@ -60,11 +60,24 @@ impl SelectItem for ModelSelectItem {
     }
 }
 
+/// Callback type for custom on_item_click handlers.
+pub type OnModelItemClickFn = Box<
+    dyn Fn(
+        bool,
+        Arc<SelectState<ModelSelection, ModelSelectItem>>,
+        SharedString,
+        &mut Window,
+        &mut App,
+    ),
+>;
+
 /// Creates the models select state with an empty items list.
 /// Items are populated lazily when the menu is opened.
+/// If `custom_on_item_click` is provided, it will be used instead of the default callback.
 pub fn create_models_select_state(
     id: ElementId,
     managers: Arc<RwLock<Managers>>,
+    custom_on_item_click: Option<OnModelItemClickFn>,
     window: &mut Window,
     cx: &mut App,
 ) -> SelectState<ModelSelection, ModelSelectItem> {
@@ -75,36 +88,43 @@ pub fn create_models_select_state(
         |_window, _cx| SelectItemsMap::new(),
     );
 
-    // Set up the selection callback
-    let managers_for_callback = managers.clone();
-    state.on_item_click(move |checked, state, item_name, _window, cx| {
-        if !checked {
+    if let Some(custom_callback) = custom_on_item_click {
+        // Use the custom callback
+        state.on_item_click(move |checked, state, item_name, window, cx| {
+            custom_callback(checked, state, item_name, window, cx);
+        });
+    } else {
+        // Set up the default selection callback
+        let managers_for_callback = managers.clone();
+        state.on_item_click(move |checked, state, item_name, _window, cx| {
+            if !checked {
+                state.hide_menu(cx);
+                return;
+            }
+
+            // Get the selected item's value - clone values to avoid borrow conflict
+            let selection = {
+                let items = state.items.read(cx);
+                items
+                    .get(&item_name)
+                    .map(|entry| entry.item.value().clone())
+            };
+
+            if let Some(selection) = selection {
+                // Update the select state's selected item
+                let _ = state.select_item(cx, item_name);
+
+                // Update ModelsManager
+                let mut managers = managers_for_callback.write_arc_blocking();
+                managers
+                    .models
+                    .set_current_provider(cx, selection.provider_id);
+                managers.models.set_current_model(cx, selection.model_id);
+            }
+
             state.hide_menu(cx);
-            return;
-        }
-
-        // Get the selected item's value - clone values to avoid borrow conflict
-        let selection = {
-            let items = state.items.read(cx);
-            items
-                .get(&item_name)
-                .map(|entry| entry.item.value().clone())
-        };
-
-        if let Some(selection) = selection {
-            // Update the select state's selected item
-            let _ = state.select_item(cx, item_name);
-
-            // Update ModelsManager
-            let mut managers = managers_for_callback.write_arc_blocking();
-            managers
-                .models
-                .set_current_provider(cx, selection.provider_id);
-            managers.models.set_current_model(cx, selection.model_id);
-        }
-
-        state.hide_menu(cx);
-    });
+        });
+    }
 
     state
 }

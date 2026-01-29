@@ -4,14 +4,15 @@ use gpui::{App, ElementId, Overflow, PointRefinement, Window, div, prelude::*, p
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
     ElementIdExt,
-    components::Input,
-    primitives::{input::InputState, min_w0_wrapper},
+    components::select::Select,
+    primitives::min_w0_wrapper,
     theme::{ThemeExt, ThemeLayerKind},
 };
 use smol::lock::RwLock;
 
 use crate::{
-    managers::Managers, views::settings::blocks::settings_area::pages::render_settings_page_title,
+    blocks::ModelPicker, managers::Managers,
+    views::settings::blocks::settings_area::pages::render_settings_page_title,
 };
 
 #[derive(IntoElement)]
@@ -58,6 +59,7 @@ impl RenderOnce for ChatTitlesPage {
                     })
                     .child(render_model_picker(
                         self.id.with_suffix("model_picker"),
+                        self.managers.clone(),
                         window,
                         cx,
                     )),
@@ -67,6 +69,7 @@ impl RenderOnce for ChatTitlesPage {
 
 fn render_model_picker(
     id: impl Into<ElementId>,
+    managers: Arc<RwLock<Managers>>,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -82,10 +85,21 @@ fn render_model_picker(
     let corner_radius = cx.get_theme().layout.corner_radii.lg;
     let padding = cx.get_theme().layout.padding.xl;
 
-    let model_name_input_state =
-        window.use_keyed_state(id.with_suffix("state:model_name"), cx, |_window, cx| {
-            InputState::new(cx)
-        });
+    // Create model picker with custom on_item_click for chat titles page
+    let picker = ModelPicker::new(
+        id.clone(),
+        managers,
+        true,
+        Some(Box::new(|checked, state, item_name, _window, cx| {
+            println!("hello world");
+            if checked {
+                let _ = state.select_item(cx, item_name);
+            }
+            state.hide_menu(cx);
+        })),
+        window,
+        cx,
+    );
 
     let top_content = div()
         .w_full()
@@ -106,9 +120,11 @@ fn render_model_picker(
                 .child("Set the model used to generate titles. Small local models are preferable."),
         );
 
-    let bottom_content = Input::new(id.with_suffix("model_name_input"), model_name_input_state)
-        .placeholder("Enter Model Name")
-        .layer(ThemeLayerKind::Quaternary);
+    let bottom_content = Select::new(id.with_suffix("model_select"), picker.state)
+        .max_w_full()
+        .max_menu_h(px(200.))
+        .layer(ThemeLayerKind::Quaternary)
+        .disabled(picker.has_no_providers);
 
     div()
         .w_full()

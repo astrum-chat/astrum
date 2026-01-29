@@ -16,16 +16,18 @@ use gpui_tesserae::{
 use serde_json::value::RawValue;
 use smol::lock::{RwLock, RwLockReadGuard};
 
-use crate::{Managers, assets::AstrumIconKind, managers::ValuesOnly};
+use crate::{
+    Managers,
+    assets::AstrumIconKind,
+    blocks::{ModelPicker, models_menu::fetch_all_models},
+    managers::ValuesOnly,
+};
 
 mod existing_chat;
 use existing_chat::render_existing_chat;
 
 mod prompt_new_chat;
 use prompt_new_chat::render_prompt_new_chat;
-
-mod models_menu;
-use models_menu::{create_models_select_state, fetch_all_models, observe_providers_for_refresh};
 
 #[derive(IntoElement)]
 pub struct ChatArea {
@@ -106,37 +108,23 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
 
-    // Create models select state
-    let models_select_state =
-        create_models_select_state(elem.id.clone(), elem.managers.clone(), window, cx);
-
-    // Clone for use in the toggle click handler
-    let models_state_for_toggle = Arc::new(models_select_state);
-    let models_state_for_menu = models_state_for_toggle.clone();
-    let managers_for_toggle = elem.managers.clone();
-
-    // Observe providers and clear menu when they change
-    let providers_entity = elem.managers.read_blocking().models.providers.clone();
-    observe_providers_for_refresh(
-        &providers_entity,
-        models_state_for_toggle.clone(),
+    // Create model picker with shared setup logic (None uses default callback)
+    let picker = ModelPicker::new(
+        elem.id.clone(),
         elem.managers.clone(),
+        false,
+        None,
+        window,
         cx,
     );
 
-    // Check if there are any providers (disable buttons if none)
-    let has_no_providers = providers_entity.read(cx).is_empty();
-
-    // Check if a model is selected (disable send button if not)
-    let has_no_model = elem
-        .managers
-        .read_blocking()
-        .models
-        .get_current_model(cx)
-        .is_none();
+    let models_state_for_toggle = picker.state.clone();
+    let models_state_for_menu = picker.state.clone();
+    let managers_for_toggle = elem.managers.clone();
 
     // Get menu visibility for arrow rotation
-    let menu_visible_delta = models_state_for_toggle
+    let menu_visible_delta = picker
+        .state
         .menu_visible_transition
         .evaluate(window, cx)
         .value();
@@ -146,7 +134,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             Toggle::new(elem.id.with_suffix("switch_llm_btn"))
                 .w_auto()
                 .variant(ToggleVariant::Secondary)
-                .disabled(has_no_providers)
+                .disabled(picker.has_no_providers)
                 .text(
                     models_state_for_toggle
                         .get_selected_item_name(cx)
@@ -207,7 +195,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             .icon(AstrumIconKind::Send)
             .icon_size(px(18.))
             .p(px(9.))
-            .disabled(has_no_providers || has_no_model)
+            .disabled(picker.has_no_providers || picker.has_no_model)
             .map(|this| {
                 let chat_box_input_state = chat_box_input_state.clone();
                 let managers = elem.managers.clone();
