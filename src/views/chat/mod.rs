@@ -27,20 +27,25 @@ impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         gpui_tesserae::init_for_window(window, cx);
 
-        div()
+        let base = div()
             .text_size(cx.get_theme().layout.text.default_font.sizes.body)
             .size_full()
             .max_w_full()
             .bg(cx.get_theme().variants.active(cx).colors.background.primary)
             .flex()
-            .pr(px(10.))
-            .pt(px(10.))
-            .when_else(
-                window.is_fullscreen(),
-                |this| this.pt(px(10.)),
-                |this| this.pt(px(33.)),
-            )
-            .absolute()
+            .pr(px(10.));
+
+        #[cfg(target_os = "macos")]
+        let base = base.when_else(
+            window.is_fullscreen(),
+            |this| this.pt(px(10.)),
+            |this| this.pt(px(33.)),
+        );
+
+        #[cfg(not(target_os = "macos"))]
+        let base = base.pt(px(10.));
+
+        base.absolute()
             .child(TitleBar::new())
             .child(Sidebar::new(
                 self.id.with_suffix("sidebar"),

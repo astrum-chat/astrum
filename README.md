@@ -14,8 +14,8 @@
 
 ## Features
 
-- **Multi-Provider Support** — Connect to OpenAI, Anthropic, or Ollama with a unified interface
-- **Local-First** — All conversations persist in a local SQLite database
+- **Multi-Provider Support** — Connect to OpenAI, Anthropic, or Ollama.
+- **Local-First** — All conversations persist in a local SQLite database.
 
 - - -
 
