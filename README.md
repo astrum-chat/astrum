@@ -10,7 +10,7 @@
 
 ## About
 
-> It's still a bit rough around the edges and is still missing some features such as: chat titles, thinking, web search, markdown and message cancellation.
+> It's still a bit rough around the edges and is still missing some features such as: thinking, web search, markdown and message cancellation.
 
 ## Features
 
