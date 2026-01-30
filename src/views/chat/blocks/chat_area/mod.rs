@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyml::{ChatOptions, MessageRole, models::Message};
+use futures::future::{AbortHandle, Abortable};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
     SharedString, Window, deferred, div, prelude::*, px, radians,
@@ -14,7 +15,7 @@ use gpui_tesserae::{
     theme::{ThemeExt, ThemeLayerKind},
 };
 use serde_json::value::RawValue;
-use smol::lock::{RwLock, RwLockReadGuard};
+use smol::lock::RwLock;
 
 use crate::{
     Managers,
@@ -198,9 +199,16 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 ),
         );
 
+    // Check if currently streaming to determine button behavior
+    let is_streaming = *elem.managers.read_blocking().chats.is_streaming.read(cx);
+
     let chat_box_right_items = div().flex().flex_row_reverse().gap(px(7.)).child(
         Button::new(elem.id.with_suffix("send_msg_btn"))
-            .icon(AstrumIconKind::Send)
+            .icon(if is_streaming {
+                AstrumIconKind::Stop
+            } else {
+                AstrumIconKind::Send
+            })
             .icon_size(px(18.))
             .p(px(9.))
             .disabled(picker.has_no_providers || picker.has_no_model)
@@ -209,10 +217,19 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 let managers = elem.managers.clone();
 
                 this.on_click(move |_event, _window, cx| {
-                    let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
-                    let Some(contents) = contents else { return };
+                    let managers_guard = managers.read_blocking();
+                    let is_streaming = *managers_guard.chats.is_streaming.read(cx);
 
-                    send_message(managers.read_blocking(), contents, cx);
+                    if is_streaming {
+                        // Cancel the current streaming response
+                        managers_guard.chats.cancel_streaming(cx);
+                    } else {
+                        // Send a new message
+                        let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
+                        let Some(contents) = contents else { return };
+                        drop(managers_guard);
+                        send_message(managers.clone(), contents, cx);
+                    }
                 })
             }),
     );
@@ -228,8 +245,15 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
         move |window, cx| {
-            // Don't send if no provider or model is selected
             let managers_guard = managers.read_blocking();
+            let is_streaming = *managers_guard.chats.is_streaming.read(cx);
+
+            if is_streaming {
+                // Cancel the current streaming response
+                managers_guard.chats.cancel_streaming(cx);
+            }
+
+            // Don't send if no provider or model is selected
             if managers_guard.models.get_current_provider(cx).is_none()
                 || managers_guard.models.get_current_model(cx).is_none()
             {
@@ -241,7 +265,8 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             window.blur();
 
             let Some(contents) = contents else { return };
-            send_message(managers_guard, contents, cx);
+            drop(managers_guard);
+            send_message(managers.clone(), contents, cx);
         }
     })
     .placeholder("Type your message here...")
@@ -267,30 +292,31 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 }
 
 fn send_message(
-    managers: RwLockReadGuard<'_, Managers>,
+    managers: Arc<RwLock<Managers>>,
     contents: SharedString,
     cx: &mut App,
 ) -> Option<()> {
-    let current_provider = managers.models.get_current_provider(cx).cloned()?;
-    let current_model = managers.models.get_current_model(cx).cloned()?;
+    let managers_guard = managers.read_blocking();
+    let current_provider = managers_guard.models.get_current_provider(cx).cloned()?;
+    let current_model = managers_guard.models.get_current_model(cx).cloned()?;
 
-    let (current_chat, is_new_chat) = match managers.chats.get_current_chat(cx) {
+    let (current_chat, is_new_chat) = match managers_guard.chats.get_current_chat(cx) {
         Ok(Some(current_chat)) => (current_chat, false),
-        Ok(None) => match managers.chats.create_chat(cx) {
+        Ok(None) => match managers_guard.chats.create_chat(cx) {
             Ok(new_chat) => (new_chat, true),
             _ => return None,
         },
         Err(_) => return None,
     };
 
-    managers
+    managers_guard
         .chats
         .set_current_chat(cx, current_chat.read(cx).chat_id.clone());
 
     // Generate title for new chats if chat_titles_model is configured
     if is_new_chat {
-        let chat_titles_provider = managers.models.get_chat_titles_provider(cx).cloned();
-        let chat_titles_model = managers.models.get_chat_titles_model(cx).cloned();
+        let chat_titles_provider = managers_guard.models.get_chat_titles_provider(cx).cloned();
+        let chat_titles_model = managers_guard.models.get_chat_titles_model(cx).cloned();
 
         if let (Some(provider), Some(model)) = (chat_titles_provider, chat_titles_model) {
             let user_message = contents.to_string();
@@ -357,39 +383,64 @@ fn send_message(
         })
         .ok()?;
 
+    // Set streaming state to true and create abort handle
+    managers_guard.chats.set_streaming(cx, true);
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    managers_guard
+        .chats
+        .set_abort_handle(cx, Some(abort_handle));
+
+    // Drop the read guard before spawning the async task
+    drop(managers_guard);
+
+    let managers_for_cleanup = managers.clone();
+
     cx.spawn(async move |cx: &mut AsyncApp| {
-        let Ok(messages) = cx.read_entity(&current_chat, move |current_chat, cx| {
-            serde_json::to_string(&ValuesOnly(&current_chat.read_messages(cx)))
-        }) else {
-            return;
-        };
+        let streaming_future = async {
+            let Ok(messages) = cx.read_entity(&current_chat, move |current_chat, cx| {
+                serde_json::to_string(&ValuesOnly(&current_chat.read_messages(cx)))
+            }) else {
+                return;
+            };
 
-        let messages =
-            unsafe { std::mem::transmute::<Box<str>, Box<RawValue>>(messages.into_boxed_str()) };
+            let messages = unsafe {
+                std::mem::transmute::<Box<str>, Box<RawValue>>(messages.into_boxed_str())
+            };
 
-        let options = ChatOptions::new(&current_model).messages_serialized(messages);
-        let response = current_provider.inner.chat(&options).await;
+            let options = ChatOptions::new(&current_model).messages_serialized(messages);
+            let response = current_provider.inner.chat(&options).await;
 
-        match response {
-            Ok(mut response) => {
-                while let Some(Ok(chunk)) = response.next().await {
+            match response {
+                Ok(mut response) => {
+                    while let Some(Ok(chunk)) = response.next().await {
+                        let _ = current_chat.update(cx, |current_chat, cx| {
+                            current_chat
+                                .push_message_content(cx, &msg_id, &chunk.content)
+                                .unwrap();
+                            cx.notify();
+                        });
+                    }
+                }
+                Err(err) => {
                     let _ = current_chat.update(cx, |current_chat, cx| {
                         current_chat
-                            .push_message_content(cx, &msg_id, &chunk.content)
+                            .push_message_content(cx, &msg_id, &format!("{}", err.to_string()))
                             .unwrap();
                         cx.notify();
                     });
                 }
-            }
-            Err(err) => {
-                let _ = current_chat.update(cx, |current_chat, cx| {
-                    current_chat
-                        .push_message_content(cx, &msg_id, &format!("{}", err.to_string()))
-                        .unwrap();
-                    cx.notify();
-                });
-            }
+            };
         };
+
+        // Wrap the streaming future with abort registration
+        let _ = Abortable::new(streaming_future, abort_registration).await;
+
+        // Clean up streaming state when done (whether completed or aborted)
+        let _ = cx.update(|cx| {
+            let managers_guard = managers_for_cleanup.read_blocking();
+            managers_guard.chats.set_streaming(cx, false);
+            managers_guard.chats.set_abort_handle(cx, None);
+        });
     })
     .detach();
 

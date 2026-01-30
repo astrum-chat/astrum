@@ -1,6 +1,7 @@
 use std::{cmp::Reverse, sync::Arc};
 
 use chrono::NaiveDateTime;
+use futures::future::AbortHandle;
 use gpui::{App, AppContext, Entity};
 use granular_btreemap::GranularBTreeMap;
 use rusqlite::Connection;
@@ -16,6 +17,10 @@ pub struct ChatsManager {
     db_connection: Option<Arc<Connection>>,
     chats: Entity<Option<ChatsMap>>,
     current_chat_id: Entity<Option<UniqueId>>,
+    /// Tracks whether a response is currently being streamed
+    pub is_streaming: Entity<bool>,
+    /// Handle to abort the current streaming task
+    pub streaming_abort_handle: Entity<Option<AbortHandle>>,
 }
 
 impl<'a> ChatsManager {
@@ -24,7 +29,31 @@ impl<'a> ChatsManager {
             db_connection: None,
             chats: cx.new(|_cx| None),
             current_chat_id: cx.new(|_cx| None),
+            is_streaming: cx.new(|_cx| false),
+            streaming_abort_handle: cx.new(|_cx| None),
         }
+    }
+
+    pub fn set_streaming(&self, cx: &mut App, streaming: bool) {
+        self.is_streaming.update(cx, |is_streaming, cx| {
+            *is_streaming = streaming;
+            cx.notify();
+        });
+    }
+
+    pub fn set_abort_handle(&self, cx: &mut App, handle: Option<AbortHandle>) {
+        self.streaming_abort_handle.update(cx, |abort_handle, cx| {
+            *abort_handle = handle;
+            cx.notify();
+        });
+    }
+
+    pub fn cancel_streaming(&self, cx: &mut App) {
+        if let Some(handle) = self.streaming_abort_handle.read(cx).as_ref() {
+            handle.abort();
+        }
+        self.set_abort_handle(cx, None);
+        self.set_streaming(cx, false);
     }
 
     pub fn init(
