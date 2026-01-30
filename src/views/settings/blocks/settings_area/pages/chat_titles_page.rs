@@ -11,7 +11,8 @@ use gpui_tesserae::{
 use smol::lock::RwLock;
 
 use crate::{
-    blocks::ModelPicker, managers::Managers,
+    blocks::{ModelPicker, models_menu::ModelSelectionSource},
+    managers::Managers,
     views::settings::blocks::settings_area::pages::render_settings_page_title,
 };
 
@@ -87,7 +88,7 @@ fn render_model_picker(
 
     // Create model picker with custom on_item_click for chat titles page
     let managers_for_callback = managers.clone();
-    let picker = ModelPicker::new(
+    let picker = ModelPicker::new_with_source(
         id.clone(),
         managers,
         true,
@@ -105,9 +106,11 @@ fn render_model_picker(
 
                 if let Some(selection) = selection {
                     let mut managers = managers_for_callback.write_arc_blocking();
-                    managers
-                        .models
-                        .set_chat_titles_provider(cx, selection.provider_id);
+                    managers.models.set_chat_titles_provider(
+                        cx,
+                        selection.provider_id,
+                        selection.provider_name,
+                    );
                     managers
                         .models
                         .set_chat_titles_model(cx, selection.model_id);
@@ -115,6 +118,7 @@ fn render_model_picker(
             }
             state.hide_menu(cx);
         })),
+        ModelSelectionSource::ChatTitles,
         window,
         cx,
     );
@@ -142,7 +146,12 @@ fn render_model_picker(
         .max_w_full()
         .max_menu_h(px(200.))
         .layer(ThemeLayerKind::Quaternary)
-        .disabled(picker.has_no_providers);
+        .disabled(picker.has_no_providers)
+        .placeholder(if picker.has_no_providers {
+            "No provider exists"
+        } else {
+            "No model selected"
+        });
 
     div()
         .w_full()

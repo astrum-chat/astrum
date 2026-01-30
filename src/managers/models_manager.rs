@@ -26,6 +26,7 @@ use crate::{
 
 pub struct ProviderModelPair {
     pub provider_id: Entity<Option<UniqueId>>,
+    pub provider_name: Entity<Option<String>>,
     pub model: Entity<Option<String>>,
 }
 
@@ -43,10 +44,12 @@ impl<'a> ModelsManager {
             providers: cx.new(move |_cx| FrontInsertMap::new()),
             current_model: ProviderModelPair {
                 provider_id: cx.new(|_cx| None),
+                provider_name: cx.new(|_cx| None),
                 model: cx.new(|_cx| None),
             },
             chat_titles_model: ProviderModelPair {
                 provider_id: cx.new(|_cx| None),
+                provider_name: cx.new(|_cx| None),
                 model: cx.new(|_cx| None),
             },
         }
@@ -68,6 +71,13 @@ impl<'a> ModelsManager {
                     created_at DATETIME NOT NULL,
                     edited_at  DATETIME NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS model_selections (
+                    key           TEXT PRIMARY KEY CHECK (key IN ('current', 'chat_titles')),
+                    provider_id   TEXT,
+                    provider_name TEXT,
+                    model         TEXT
+                );
                 ",
             )
             .unwrap();
@@ -75,6 +85,8 @@ impl<'a> ModelsManager {
         let _ = self
             .load_providers_from_db(cx, db_connection.clone())
             .unwrap();
+
+        self.load_model_selections_from_db(cx, &db_connection);
 
         self.db_connection = Some(db_connection);
     }
@@ -88,13 +100,32 @@ impl<'a> ModelsManager {
             .flatten()
     }
 
-    pub fn set_current_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
+    pub fn set_current_provider(
+        &mut self,
+        cx: &mut App,
+        provider_id: UniqueId,
+        provider_name: impl Into<String>,
+    ) {
+        let provider_name = provider_name.into();
         cx.update_entity(
             &self.current_model.provider_id,
             |current_provider_id, cx| {
-                *current_provider_id = Some(provider_id);
+                *current_provider_id = Some(provider_id.clone());
                 cx.notify();
             },
+        );
+        cx.update_entity(
+            &self.current_model.provider_name,
+            |current_provider_name, cx| {
+                *current_provider_name = Some(provider_name.clone());
+                cx.notify();
+            },
+        );
+        self.save_model_selection(
+            "current",
+            Some(&provider_id),
+            Some(&provider_name),
+            self.current_model.model.read(cx).as_deref(),
         );
     }
 
@@ -210,10 +241,17 @@ impl<'a> ModelsManager {
     }
 
     pub fn set_current_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
+        let model_name = model_name.into();
         cx.update_entity(&self.current_model.model, |model, cx| {
-            *model = Some(model_name.into());
+            *model = Some(model_name.clone());
             cx.notify();
         });
+        self.save_model_selection(
+            "current",
+            self.current_model.provider_id.read(cx).as_ref(),
+            self.current_model.provider_name.read(cx).as_deref(),
+            Some(&model_name),
+        );
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
@@ -221,10 +259,34 @@ impl<'a> ModelsManager {
             *provider_id = None;
             cx.notify();
         });
+        cx.update_entity(&self.current_model.provider_name, |provider_name, cx| {
+            *provider_name = None;
+            cx.notify();
+        });
         cx.update_entity(&self.current_model.model, |model, cx| {
             *model = None;
             cx.notify();
         });
+        self.save_model_selection("current", None, None, None);
+    }
+
+    pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
+        cx.update_entity(&self.chat_titles_model.provider_id, |provider_id, cx| {
+            *provider_id = None;
+            cx.notify();
+        });
+        cx.update_entity(
+            &self.chat_titles_model.provider_name,
+            |provider_name, cx| {
+                *provider_name = None;
+                cx.notify();
+            },
+        );
+        cx.update_entity(&self.chat_titles_model.model, |model, cx| {
+            *model = None;
+            cx.notify();
+        });
+        self.save_model_selection("chat_titles", None, None, None);
     }
 
     pub fn get_chat_titles_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
@@ -236,13 +298,32 @@ impl<'a> ModelsManager {
             .flatten()
     }
 
-    pub fn set_chat_titles_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
+    pub fn set_chat_titles_provider(
+        &mut self,
+        cx: &mut App,
+        provider_id: UniqueId,
+        provider_name: impl Into<String>,
+    ) {
+        let provider_name = provider_name.into();
         cx.update_entity(
             &self.chat_titles_model.provider_id,
             |current_provider_id, cx| {
-                *current_provider_id = Some(provider_id);
+                *current_provider_id = Some(provider_id.clone());
                 cx.notify();
             },
+        );
+        cx.update_entity(
+            &self.chat_titles_model.provider_name,
+            |current_provider_name, cx| {
+                *current_provider_name = Some(provider_name.clone());
+                cx.notify();
+            },
+        );
+        self.save_model_selection(
+            "chat_titles",
+            Some(&provider_id),
+            Some(&provider_name),
+            self.chat_titles_model.model.read(cx).as_deref(),
         );
     }
 
@@ -251,10 +332,117 @@ impl<'a> ModelsManager {
     }
 
     pub fn set_chat_titles_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
+        let model_name = model_name.into();
         cx.update_entity(&self.chat_titles_model.model, |model, cx| {
-            *model = Some(model_name.into());
+            *model = Some(model_name.clone());
             cx.notify();
         });
+        self.save_model_selection(
+            "chat_titles",
+            self.chat_titles_model.provider_id.read(cx).as_ref(),
+            self.chat_titles_model.provider_name.read(cx).as_deref(),
+            Some(&model_name),
+        );
+    }
+
+    fn save_model_selection(
+        &self,
+        key: &str,
+        provider_id: Option<&UniqueId>,
+        provider_name: Option<&str>,
+        model: Option<&str>,
+    ) {
+        if let Some(db) = &self.db_connection {
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO model_selections (key, provider_id, provider_name, model) VALUES (?1, ?2, ?3, ?4)",
+                (key, provider_id, provider_name, model),
+            );
+        }
+    }
+
+    fn load_model_selections_from_db(&mut self, cx: &mut App, db: &rusqlite::Connection) {
+        let mut stmt = match db.prepare(
+            "SELECT key, provider_id, provider_name, model FROM model_selections WHERE key IN ('current', 'chat_titles')",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return,
+        };
+
+        let rows = match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
+        }) {
+            Ok(rows) => rows,
+            Err(_) => return,
+        };
+
+        for row_result in rows {
+            let Ok((key, provider_id_str, provider_name, model)) = row_result else {
+                continue;
+            };
+
+            let provider_id = provider_id_str.map(UniqueId::from_string);
+
+            // Check if provider exists before loading
+            let provider_exists = provider_id
+                .as_ref()
+                .map(|id| self.providers.read(cx).get(id).is_some())
+                .unwrap_or(false);
+
+            if !provider_exists {
+                continue;
+            }
+
+            match key.as_str() {
+                "current" => {
+                    if let Some(id) = provider_id {
+                        self.current_model.provider_id.update(cx, |pid, cx| {
+                            *pid = Some(id);
+                            cx.notify();
+                        });
+                    }
+                    if let Some(name) = provider_name {
+                        self.current_model.provider_name.update(cx, |pname, cx| {
+                            *pname = Some(name);
+                            cx.notify();
+                        });
+                    }
+                    if let Some(m) = model {
+                        self.current_model.model.update(cx, |model, cx| {
+                            *model = Some(m);
+                            cx.notify();
+                        });
+                    }
+                }
+                "chat_titles" => {
+                    if let Some(id) = provider_id {
+                        self.chat_titles_model.provider_id.update(cx, |pid, cx| {
+                            *pid = Some(id);
+                            cx.notify();
+                        });
+                    }
+                    if let Some(name) = provider_name {
+                        self.chat_titles_model
+                            .provider_name
+                            .update(cx, |pname, cx| {
+                                *pname = Some(name);
+                                cx.notify();
+                            });
+                    }
+                    if let Some(m) = model {
+                        self.chat_titles_model.model.update(cx, |model, cx| {
+                            *model = Some(m);
+                            cx.notify();
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 
     fn load_providers_from_db(

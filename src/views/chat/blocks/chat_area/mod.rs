@@ -140,12 +140,20 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                         .get_selected_item_name(cx)
                         .map(|name| name.to_string())
                         .unwrap_or_else(|| {
-                            elem.managers
-                                .read_blocking()
-                                .models
-                                .get_current_model(cx)
-                                .map(|this| this.to_string())
-                                .unwrap_or_else(|| "No model selected".to_string())
+                            let managers = elem.managers.read_blocking();
+                            if managers.models.providers.read(cx).is_empty() {
+                                return "No provider exists".to_string();
+                            }
+                            let provider_name =
+                                managers.models.current_model.provider_name.read(cx).clone();
+                            let model = managers.models.get_current_model(cx).cloned();
+                            match (provider_name, model) {
+                                (Some(pn), Some(m)) => {
+                                    format!("{}/{}", pn.to_lowercase(), m)
+                                }
+                                (None, Some(m)) => m,
+                                _ => "No model selected".to_string(),
+                            }
                         }),
                 )
                 .child_right(
@@ -162,8 +170,8 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 .on_click(move |_checked, _window, cx| {
                     models_state_for_toggle.toggle_menu(cx);
 
-                    // Fetch models if not already loaded
-                    if models_state_for_toggle.items.read(cx).is_empty() {
+                    // Fetch models if not already loaded (<=1 accounts for placeholder item)
+                    if models_state_for_toggle.items.read(cx).len() <= 1 {
                         fetch_all_models(
                             managers_for_toggle.clone(),
                             models_state_for_toggle.clone(),

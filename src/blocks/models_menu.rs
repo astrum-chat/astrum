@@ -15,6 +15,7 @@ use crate::{Managers, managers::Provider, managers::UniqueId, utils::FrontInsert
 #[derive(Clone)]
 pub struct ModelSelection {
     pub provider_id: UniqueId,
+    pub provider_name: String,
     pub model_id: String,
 }
 
@@ -34,6 +35,7 @@ impl ModelSelectItem {
             display_name: format!("{}/{}", provider_name.to_lowercase(), model_id).into(),
             selection: ModelSelection {
                 provider_id,
+                provider_name: provider_name.to_string(),
                 model_id,
             },
         }
@@ -71,22 +73,45 @@ pub type OnModelItemClickFn = Box<
     ),
 >;
 
+/// Initial selection data for pre-populating the select state
+pub struct InitialModelSelection {
+    pub provider_id: UniqueId,
+    pub provider_name: String,
+    pub model_id: String,
+}
+
 /// Creates the models select state with an empty items list.
 /// Items are populated lazily when the menu is opened.
 /// If `custom_on_item_click` is provided, it will be used instead of the default callback.
+/// If `initial_selection` is provided, a placeholder item will be added and selected.
 pub fn create_models_select_state(
     id: ElementId,
     managers: Arc<RwLock<Managers>>,
     custom_on_item_click: Option<OnModelItemClickFn>,
+    initial_selection: Option<InitialModelSelection>,
     window: &mut Window,
     cx: &mut App,
 ) -> SelectState<ModelSelection, ModelSelectItem> {
+    let state_id = id.with_suffix("models_select_state");
+
     let mut state = SelectState::<ModelSelection, ModelSelectItem>::from_window(
-        id.with_suffix("models_select_state"),
+        state_id,
         window,
         cx,
         |_window, _cx| SelectItemsMap::new(),
     );
+
+    // Add a placeholder item and select it if initial selection is provided
+    if let Some(selection) = initial_selection {
+        let item = ModelSelectItem::new(
+            &selection.provider_name,
+            selection.model_id,
+            selection.provider_id,
+        );
+        let item_name = item.name();
+        state.push_item(cx, item);
+        let _ = state.select_item(cx, item_name);
+    }
 
     if let Some(custom_callback) = custom_on_item_click {
         // Use the custom callback
@@ -116,9 +141,11 @@ pub fn create_models_select_state(
 
                 // Update ModelsManager
                 let mut managers = managers_for_callback.write_arc_blocking();
-                managers
-                    .models
-                    .set_current_provider(cx, selection.provider_id);
+                managers.models.set_current_provider(
+                    cx,
+                    selection.provider_id,
+                    selection.provider_name,
+                );
                 managers.models.set_current_model(cx, selection.model_id);
             }
 
@@ -129,18 +156,50 @@ pub fn create_models_select_state(
     state
 }
 
+/// Which model selection to use for auto-selecting in the picker
+#[derive(Clone, Copy, Default, Debug)]
+pub enum ModelSelectionSource {
+    #[default]
+    Current,
+    ChatTitles,
+}
+
 /// Fetches models from all providers asynchronously and populates the select state.
 pub fn fetch_all_models(
     managers: Arc<RwLock<Managers>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
     cx: &mut App,
 ) {
-    // Get current model before spawning async task
-    let current_model: Option<String> = managers
-        .read_arc_blocking()
-        .models
-        .get_current_model(cx)
-        .cloned();
+    fetch_all_models_with_source(managers, state, ModelSelectionSource::Current, cx);
+}
+
+/// Fetches models from all providers asynchronously and populates the select state.
+/// Uses the specified source to determine which model to auto-select.
+pub fn fetch_all_models_with_source(
+    managers: Arc<RwLock<Managers>>,
+    state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
+    source: ModelSelectionSource,
+    cx: &mut App,
+) {
+    // Get current provider_id and model before spawning async task
+    let (current_provider_id, current_model): (Option<UniqueId>, Option<String>) = {
+        let managers = managers.read_arc_blocking();
+        match source {
+            ModelSelectionSource::Current => (
+                managers.models.current_model.provider_id.read(cx).clone(),
+                managers.models.get_current_model(cx).cloned(),
+            ),
+            ModelSelectionSource::ChatTitles => (
+                managers
+                    .models
+                    .chat_titles_model
+                    .provider_id
+                    .read(cx)
+                    .clone(),
+                managers.models.get_chat_titles_model(cx).cloned(),
+            ),
+        }
+    };
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         // Collect provider info we need for fetching
@@ -169,11 +228,15 @@ pub fn fetch_all_models(
                                 provider_id.clone(),
                             );
 
-                            // Select this item if it matches the current model
+                            // Select this item if it matches the current provider and model
                             let item_name = item.name();
                             state.push_item(cx, item);
 
-                            if current_model.as_ref() == Some(&model.id) {
+                            let provider_matches =
+                                current_provider_id.as_ref() == Some(&provider_id);
+                            let model_matches = current_model.as_ref() == Some(&model.id);
+
+                            if provider_matches && model_matches {
                                 let _ = state.select_item(cx, item_name);
                             }
                         }
@@ -214,6 +277,21 @@ pub fn observe_providers_for_refresh(
             let provider_exists = providers.read(cx).get(&provider_id).is_some();
             if !provider_exists {
                 managers.models.clear_current_selection(cx);
+            }
+        }
+
+        // Check if chat_titles provider still exists, if not clear the manager selection
+        let chat_titles_provider_id = managers
+            .models
+            .chat_titles_model
+            .provider_id
+            .read(cx)
+            .clone();
+
+        if let Some(provider_id) = chat_titles_provider_id {
+            let provider_exists = providers.read(cx).get(&provider_id).is_some();
+            if !provider_exists {
+                managers.models.clear_chat_titles_selection(cx);
             }
         }
     })
