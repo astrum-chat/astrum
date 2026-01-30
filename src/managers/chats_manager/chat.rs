@@ -87,6 +87,26 @@ impl<'a> Chat {
         self.messages.read(cx)
     }
 
+    pub fn set_title(
+        &self,
+        cx: &mut App,
+        new_title: impl Into<String>,
+    ) -> Result<(), rusqlite::Error> {
+        let new_title = new_title.into();
+
+        self.db_connection.execute(
+            "UPDATE chats SET title = ?1 WHERE id = ?2",
+            (&new_title, &self.chat_id),
+        )?;
+
+        self.title.update(cx, |title, cx| {
+            *title = new_title;
+            cx.notify();
+        });
+
+        Ok(())
+    }
+
     pub fn push_message(
         &mut self,
         cx: &mut App,

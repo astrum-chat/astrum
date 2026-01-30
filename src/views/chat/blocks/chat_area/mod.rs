@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyml::{ChatOptions, MessageRole};
+use anyml::{ChatOptions, MessageRole, models::Message};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
     SharedString, Window, deferred, div, prelude::*, px, radians,
@@ -274,10 +274,10 @@ fn send_message(
     let current_provider = managers.models.get_current_provider(cx).cloned()?;
     let current_model = managers.models.get_current_model(cx).cloned()?;
 
-    let current_chat = match managers.chats.get_current_chat(cx) {
-        Ok(Some(current_chat)) => current_chat,
+    let (current_chat, is_new_chat) = match managers.chats.get_current_chat(cx) {
+        Ok(Some(current_chat)) => (current_chat, false),
         Ok(None) => match managers.chats.create_chat(cx) {
-            Ok(new_chat) => new_chat,
+            Ok(new_chat) => (new_chat, true),
             _ => return None,
         },
         Err(_) => return None,
@@ -286,6 +286,57 @@ fn send_message(
     managers
         .chats
         .set_current_chat(cx, current_chat.read(cx).chat_id.clone());
+
+    // Generate title for new chats if chat_titles_model is configured
+    if is_new_chat {
+        let chat_titles_provider = managers.models.get_chat_titles_provider(cx).cloned();
+        let chat_titles_model = managers.models.get_chat_titles_model(cx).cloned();
+
+        if let (Some(provider), Some(model)) = (chat_titles_provider, chat_titles_model) {
+            let user_message = contents.to_string();
+            let chat_for_title = current_chat.clone();
+
+            cx.spawn(async move |cx: &mut AsyncApp| {
+                let prompt = format!(
+                    "Summarize this into a short 4-6 word thread title. Do not use any punctuation. Keep it natural and concise.\n\nUser: \"{}\"\nTitle:",
+                    user_message
+                );
+
+                let messages = [Message {
+                    content: prompt,
+                    role: MessageRole::User,
+                }];
+                let options = ChatOptions::new(&model).messages(&messages);
+
+                if let Ok(mut response) = provider.inner.chat(&options).await {
+                    let mut title = String::new();
+                    while let Some(Ok(chunk)) = response.next().await {
+                        title.push_str(&chunk.content);
+
+                        // Stream the title update to the UI
+                        let current_title = title.trim().to_string();
+                        if !current_title.is_empty() {
+                            let _ = chat_for_title.update(cx, |chat, cx| {
+                                chat.title.update(cx, |t, cx| {
+                                    *t = current_title;
+                                    cx.notify();
+                                });
+                            });
+                        }
+                    }
+
+                    // Final update to persist to database
+                    let final_title = title.trim().to_string();
+                    if !final_title.is_empty() {
+                        let _ = chat_for_title.update(cx, |chat, cx| {
+                            let _ = chat.set_title(cx, final_title);
+                        });
+                    }
+                }
+            })
+            .detach();
+        }
+    }
 
     let msg_id = current_chat
         .update(cx, |current_chat, cx| {

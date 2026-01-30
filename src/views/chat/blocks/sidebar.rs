@@ -144,6 +144,7 @@ impl RenderOnce for Sidebar {
             .tab_group()
             .tab_index(0)
             .tab_stop(false)
+            .max_w(px(300.))
             .min_w(px(300.))
             .h_full()
             .flex()
