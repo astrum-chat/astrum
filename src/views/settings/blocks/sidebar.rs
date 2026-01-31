@@ -5,10 +5,9 @@ use gpui::{
     prelude::*, px,
 };
 use gpui_tesserae::{
-    ElementIdExt, PositionalParentElement,
-    components::{Icon, Input, Toggle, ToggleVariant},
+    ElementIdExt,
+    components::{Toggle, ToggleVariant},
     extensions::mouse_handleable::MouseHandleable,
-    primitives::input::InputState,
 };
 use smol::lock::RwLock;
 
@@ -37,31 +36,7 @@ impl Sidebar {
 }
 
 impl RenderOnce for Sidebar {
-    fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
-        let search_settings_input_state = window.use_keyed_state(
-            self.id.with_suffix("state:search_settings_input"),
-            cx,
-            |_window, cx| InputState::new(cx),
-        );
-
-        let top_section = div()
-            .flex()
-            .flex_col()
-            .pl(px(10.))
-            .pr(px(10.))
-            .mb(px(10.))
-            .gap(px(5.))
-            .w_full()
-            .h_auto()
-            .child(
-                Input::new(
-                    self.id.with_suffix("search_settings_btn"),
-                    search_settings_input_state.clone(),
-                )
-                .placeholder("Search Settings")
-                .child_left(Icon::new(AstrumIconKind::Search)),
-            );
-
+    fn render(self, _window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
         let current_settings_page_name_state = &self
             .managers
             .read_arc_blocking()
@@ -70,7 +45,7 @@ impl RenderOnce for Sidebar {
 
         let current_settings_page_name = current_settings_page_name_state.read(cx);
 
-        let bottom_section = div()
+        let top_section = div()
             .pl(px(10.))
             .pr(px(10.))
             .flex()
@@ -95,7 +70,6 @@ impl RenderOnce for Sidebar {
             .flex()
             .flex_col()
             .child(top_section)
-            .child(bottom_section)
     }
 }
 
