@@ -14,8 +14,24 @@ use gpui_tesserae::{
 use smol::lock::RwLock;
 
 use crate::{
-    OpenSettings, assets::AstrumIconKind, managers::Managers, utils::search::filter_by_relevance,
+    OpenSettings, PixelsExt, assets::AstrumIconKind, managers::Managers, managers::UniqueId,
+    utils::search::filter_by_relevance,
 };
+
+#[derive(Clone)]
+struct SearchState {
+    last_query: String,
+    filtered_ids: Option<Vec<UniqueId>>,
+}
+
+impl SearchState {
+    fn new() -> Self {
+        Self {
+            last_query: String::new(),
+            filtered_ids: None,
+        }
+    }
+}
 
 #[derive(IntoElement)]
 pub struct Sidebar {
@@ -34,6 +50,30 @@ impl Sidebar {
     }
 }
 
+fn collect_chat_data(chats: &crate::managers::ChatsManager, cx: &App) -> Vec<(UniqueId, String)> {
+    chats
+        .chats_iter(cx)
+        .map(|iter| {
+            iter.map(|chat| (chat.chat_id.clone(), chat.title.read(cx).clone()))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn compute_filtered_ids(chat_data: Vec<(UniqueId, String)>, query: &str) -> Option<Vec<UniqueId>> {
+    if query.is_empty() {
+        return None;
+    }
+
+    let ids: Vec<UniqueId> =
+        filter_by_relevance(chat_data.iter(), query, |(_id, title)| title.as_str())
+            .into_iter()
+            .map(|(id, _)| id.clone())
+            .collect();
+
+    Some(ids)
+}
+
 impl RenderOnce for Sidebar {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
         let secondary_bg_color = cx
@@ -50,9 +90,37 @@ impl RenderOnce for Sidebar {
             |_window, cx| InputState::new(cx),
         );
 
+        let search_state = window.use_keyed_state(
+            self.id.with_suffix("state:search_results"),
+            cx,
+            |_window, _cx| SearchState::new(),
+        );
+
         let chats = &self.managers.read_blocking().chats;
         let current_chat_id_state = chats.get_current_chat_id();
         let current_chat_id = current_chat_id_state.read(cx).as_ref();
+
+        let current_query = search_chats_input_state.read(cx).value().to_string();
+        let search_state_data = search_state.read(cx);
+
+        if current_query != search_state_data.last_query {
+            let new_query = current_query.clone();
+            let search_state = search_state.clone();
+            let chat_data = collect_chat_data(chats, cx);
+
+            cx.spawn(async move |cx| {
+                let filtered_ids = compute_filtered_ids(chat_data, &new_query);
+
+                let _ = search_state.update(cx, |state, cx| {
+                    state.last_query = new_query;
+                    state.filtered_ids = filtered_ids;
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+
+        let filtered_ids = search_state_data.filtered_ids.clone();
 
         let top_section = div()
             .flex()
@@ -86,8 +154,6 @@ impl RenderOnce for Sidebar {
                     }),
             );
 
-        let search_query = search_chats_input_state.read(cx).value().to_string();
-
         let threads_section = div()
             .id(self.id.with_suffix("threads_section"))
             .flex()
@@ -103,30 +169,47 @@ impl RenderOnce for Sidebar {
                 };
                 this
             })
-            .map(|this| match chats.chats_iter(cx) {
-                Some(iter) => {
-                    let filtered_chats = filter_by_relevance(iter, &search_query, |chat| {
-                        chat.title.read(cx).as_str()
-                    });
+            .map(|this| {
+                let Some(iter) = chats.chats_iter(cx) else {
+                    return this.child(empty_state_text("No threads exist yet.", window, cx));
+                };
 
-                    this.children(filtered_chats.into_iter().map(|chat| {
-                        let current_chat_id_state = current_chat_id_state.clone();
-                        let chat_id = chat.chat_id.clone();
-
-                        Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
-                            .text(chat.title.read(cx))
-                            .variant(ToggleVariant::Secondary)
-                            .checked(current_chat_id == Some(&chat_id))
-                            .icon(AstrumIconKind::Chat)
-                            .on_click(move |_checked, _window, cx| {
-                                current_chat_id_state
-                                    .update(cx, |this, _cx| *this = Some(chat_id.clone()));
-                            })
-                            .justify_start()
-                    }))
+                let all_chats: Vec<_> = iter.collect();
+                if all_chats.is_empty() {
+                    return this.child(empty_state_text("No threads exist yet.", window, cx));
                 }
 
-                None => this,
+                let visible_chats: Vec<_> = match &filtered_ids {
+                    Some(ids) => all_chats
+                        .into_iter()
+                        .filter(|chat| ids.contains(&chat.chat_id))
+                        .collect(),
+                    None => all_chats,
+                };
+
+                if visible_chats.is_empty() {
+                    return this.child(empty_state_text(
+                        "No threads matched this query.",
+                        window,
+                        cx,
+                    ));
+                }
+
+                this.children(visible_chats.into_iter().map(|chat| {
+                    let current_chat_id_state = current_chat_id_state.clone();
+                    let chat_id = chat.chat_id.clone();
+
+                    Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
+                        .text(chat.title.read(cx))
+                        .variant(ToggleVariant::Secondary)
+                        .checked(current_chat_id == Some(&chat_id))
+                        .icon(AstrumIconKind::Chat)
+                        .on_click(move |_checked, _window, cx| {
+                            current_chat_id_state
+                                .update(cx, |this, _cx| *this = Some(chat_id.clone()));
+                        })
+                        .justify_start()
+                }))
             });
 
         let bottom_section = div()
@@ -186,4 +269,28 @@ impl RenderOnce for Sidebar {
 
 fn divider(color: impl Into<Fill>) -> impl IntoElement {
     div().w(relative(1.)).h(px(1.)).min_h(px(1.)).bg(color)
+}
+
+fn empty_state_text(message: &str, window: &gpui::Window, cx: &App) -> impl IntoElement {
+    let secondary_text_color = cx.get_theme().variants.active(cx).colors.text.secondary;
+    let body_size = cx.get_theme().layout.text.default_font.sizes.body;
+    let line_height = cx.get_theme().layout.text.default_font.line_height;
+    let vertical_padding =
+        cx.get_theme()
+            .layout
+            .size
+            .lg
+            .padding_needed_for_height(window, body_size, line_height);
+
+    div()
+        .w_full()
+        .flex()
+        .justify_center()
+        .pt(vertical_padding)
+        .child(
+            div()
+                .text_color(secondary_text_color)
+                .text_size(body_size)
+                .child(message.to_string()),
+        )
 }

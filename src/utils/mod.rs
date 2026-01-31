@@ -14,3 +14,6 @@ mod colors;
 pub use colors::*;
 
 pub mod search;
+
+mod pixels;
+pub use pixels::*;

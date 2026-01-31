@@ -41,6 +41,7 @@ rusqlite = { version = "0.37.0", features = ["bundled", "chrono"] }
 chrono = "0.4.42"
 phf = { version = "0.13.1", features = ["macros"] }
 strsim = "0.11.1"
+rayon = "1.10"
 
 # Secrets manager.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
