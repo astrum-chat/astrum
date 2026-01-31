@@ -5,7 +5,7 @@ edition = "2024"
 
 
 [dependencies]
-# gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
+gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
 anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
 # Local development.
 # gpui_tesserae = { path = "../gpui_tesserae" }
