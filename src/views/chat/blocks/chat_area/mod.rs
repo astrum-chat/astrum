@@ -4,7 +4,7 @@ use anyml::{ChatOptions, MessageRole, models::Message};
 use futures::future::{AbortHandle, Abortable};
 use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
-    SharedString, Window, deferred, div, prelude::*, px, radians,
+    SharedString, Window, deferred, div, prelude::*, px, radians, relative,
 };
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -131,9 +131,11 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         .value();
 
     let chat_box_left_items = div()
+        .max_w_full()
         .child(deferred(
             Toggle::new(elem.id.with_suffix("switch_llm_btn"))
                 .w_auto()
+                .max_w(relative(1.))
                 .variant(ToggleVariant::Secondary)
                 .disabled(picker.has_no_providers)
                 .text(
@@ -280,6 +282,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     .text_size(text_heading_sm_size)
     .child_bottom(
         div()
+            .max_w_full()
             .flex()
             .items_start()
             .min_h_auto()
