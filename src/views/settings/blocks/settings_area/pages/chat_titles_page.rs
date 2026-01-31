@@ -86,12 +86,15 @@ fn render_model_picker(
     let corner_radius = cx.get_theme().layout.corner_radii.lg;
     let padding = cx.get_theme().layout.padding.xl;
 
+    // Get the models cache from the manager
+    let models_cache = managers.read_blocking().models.models_cache.clone();
+
     // Create model picker with custom on_item_click for chat titles page
     let managers_for_callback = managers.clone();
     let picker = ModelPicker::new_with_source(
         id.clone(),
         managers,
-        true,
+        models_cache,
         Some(Box::new(move |checked, state, item_name, _window, cx| {
             if checked {
                 let _ = state.select_item(cx, item_name.clone());

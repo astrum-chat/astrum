@@ -1,20 +1,40 @@
 use rayon::prelude::*;
 use strsim::jaro_winkler;
 
-const FUZZY_THRESHOLD: f64 = 0.75;
+/// Returns the fuzzy match threshold based on token length.
+/// Shorter tokens require higher similarity to avoid false positives.
+#[inline]
+fn fuzzy_threshold(token_len: usize) -> f64 {
+    match token_len {
+        0..=3 => 0.95,
+        4..=5 => 0.88,
+        _ => 0.82,
+    }
+}
 
 #[inline]
-fn best_token_score(query_token: &str, title_tokens: &[&str]) -> f64 {
+fn best_token_score(query_token: &str, title_tokens: &[&str]) -> Option<f64> {
+    // Check for exact match first
     for title_token in title_tokens {
         if query_token == *title_token {
-            return 1.0;
+            return Some(1.0);
         }
     }
 
-    title_tokens
+    // Check for prefix match (query is prefix of title token)
+    for title_token in title_tokens {
+        if title_token.starts_with(query_token) {
+            return Some(0.95);
+        }
+    }
+
+    let threshold = fuzzy_threshold(query_token.len());
+    let best = title_tokens
         .iter()
         .map(|tt| jaro_winkler(query_token, tt))
-        .fold(0.0, f64::max)
+        .fold(0.0, f64::max);
+
+    if best >= threshold { Some(best) } else { None }
 }
 
 #[inline]
@@ -33,9 +53,8 @@ fn calculate_match_score(
     }
 
     let (total_score, matched) = query_tokens.iter().fold((0.0, 0), |(total, matched), qt| {
-        let best = best_token_score(qt, &title_tokens);
-        if best >= FUZZY_THRESHOLD {
-            (total + best, matched + 1)
+        if let Some(score) = best_token_score(qt, &title_tokens) {
+            (total + score, matched + 1)
         } else {
             (total, matched)
         }

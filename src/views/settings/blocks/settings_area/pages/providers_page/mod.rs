@@ -20,6 +20,7 @@ use provider_settings::*;
 
 use crate::{
     assets::AstrumIconKind,
+    blocks::models_menu::refetch_provider_models,
     managers::{Managers, ProviderKind},
     views::settings::blocks::settings_area::pages::render_settings_page_title,
 };
@@ -69,14 +70,17 @@ impl RenderOnce for ProvidersPage {
             let url = kind.default_url();
             let icon = kind.default_icon();
 
-            let _ = managers.write_arc_blocking().models.new_provider(
+            if let Ok(provider_id) = managers.write_arc_blocking().models.new_provider(
                 cx,
                 kind,
                 name,
                 url,
                 Some(icon.to_string()),
                 None,
-            );
+            ) {
+                // Fetch models for the newly created provider
+                refetch_provider_models(managers.clone(), provider_id, cx);
+            }
 
             state.hide_menu(cx);
         });

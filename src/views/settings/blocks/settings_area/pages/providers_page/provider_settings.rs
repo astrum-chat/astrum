@@ -1,4 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    sync::Arc,
+    time::Duration,
+};
 
 use gpui::{
     App, Div, ElementId, Entity, Fill, Focusable, FontWeight, div, ease_out_quint, img, prelude::*,
@@ -18,31 +23,71 @@ use smol::lock::RwLock;
 
 use crate::{
     assets::AstrumIconKind,
+    blocks::models_menu::refetch_provider_models,
     managers::{Managers, Provider, UniqueId},
     views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
+
+/// Compute a hash for the API key to compare without storing the actual key
+fn hash_api_key(api_key: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    api_key.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Cached state for detecting changes to provider settings
+#[derive(Clone)]
+struct CachedProviderState {
+    url: String,
+    api_key_hash: u64,
+}
 
 fn save_provider_url(
     managers: &Arc<RwLock<Managers>>,
     provider_id: &UniqueId,
     url_input_state: &Entity<InputState>,
+    cached_state: &Entity<CachedProviderState>,
     cx: &mut App,
 ) {
     let new_url = url_input_state.read(cx).value().to_string();
-    let _ =
-        managers
-            .write_arc_blocking()
+    let cached_url = cached_state.read(cx).url.clone();
+
+    // Only save and refetch if URL actually changed
+    if new_url == cached_url {
+        return;
+    }
+
+    {
+        let mut managers_guard = managers.write_arc_blocking();
+        let _ = managers_guard
             .models
-            .edit_provider_url(cx, provider_id.clone(), new_url);
+            .edit_provider_url(cx, provider_id.clone(), new_url.clone());
+    }
+
+    // Update cached URL
+    cached_state.update(cx, |state, _| {
+        state.url = new_url;
+    });
+
+    // Refetch models for this provider since URL changed
+    refetch_provider_models(managers.clone(), provider_id.clone(), cx);
 }
 
 fn save_provider_api_key(
     managers: &Arc<RwLock<Managers>>,
     provider_id: &UniqueId,
     api_key_input_state: &Entity<InputState>,
+    cached_state: &Entity<CachedProviderState>,
     cx: &mut App,
 ) {
     let new_api_key = api_key_input_state.read(cx).value().to_string();
+    let new_api_key_hash = hash_api_key(&new_api_key);
+    let cached_api_key_hash = cached_state.read(cx).api_key_hash;
+
+    // Only save and refetch if API key actually changed
+    if new_api_key_hash == cached_api_key_hash {
+        return;
+    }
 
     let api_key = if new_api_key.is_empty() {
         None
@@ -50,11 +95,20 @@ fn save_provider_api_key(
         Some(new_api_key)
     };
 
-    let _ = managers.write_arc_blocking().models.edit_provider_api_key(
-        cx,
-        provider_id.clone(),
-        api_key,
-    );
+    {
+        let mut managers_guard = managers.write_arc_blocking();
+        let _ = managers_guard
+            .models
+            .edit_provider_api_key(cx, provider_id.clone(), api_key);
+    }
+
+    // Update cached API key hash
+    cached_state.update(cx, |state, _| {
+        state.api_key_hash = new_api_key_hash;
+    });
+
+    // Refetch models for this provider since API key changed
+    refetch_provider_models(managers.clone(), provider_id.clone(), cx);
 }
 
 #[derive(IntoElement)]
@@ -111,6 +165,26 @@ impl RenderOnce for ProviderSettings {
                     .unwrap_or_default();
 
                 InputState::new(cx).initial_value(api_key)
+            },
+        );
+
+        // Cache the initial URL and API key hash to detect changes
+        let cached_provider_state = window.use_keyed_state(
+            self.id.with_suffix("state:cached_provider"),
+            cx,
+            |_window, cx| {
+                let url = self.provider.url.read(cx).to_string();
+                let api_key = self
+                    .managers
+                    .read_arc_blocking()
+                    .models
+                    .get_provider_api_key(cx, &self.provider_id)
+                    .unwrap_or_default();
+
+                CachedProviderState {
+                    url,
+                    api_key_hash: hash_api_key(&api_key),
+                }
             },
         );
 

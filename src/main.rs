@@ -10,7 +10,7 @@ use gpui_tesserae::{
 use smol::lock::RwLock;
 use std::sync::Arc;
 
-use crate::{managers::Managers, views::SettingsView};
+use crate::{blocks::models_menu::prefetch_all_models, managers::Managers, views::SettingsView};
 
 mod assets;
 use assets::AstrumAssets;
@@ -33,6 +33,7 @@ mod managers;
 actions!(window, [TabNext, TabPrev, OpenSettings]);
 
 fn main() {
+    tracing_subscriber::fmt::init();
     dotenvy::dotenv().ok();
 
     Application::new()
@@ -72,6 +73,9 @@ fn main() {
                                 cx.spawn(async |chat_view, cx| {
                                     let _ = chat_view.update(cx, |chat_view: &mut ChatView, cx| {
                                         let _ = chat_view.managers.write_arc_blocking().init(cx);
+
+                                        // Prefetch models from all providers on startup
+                                        prefetch_all_models(chat_view.managers.clone(), cx);
                                     });
                                 })
                                 .detach();

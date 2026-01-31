@@ -19,6 +19,7 @@ impl<T: ChatProvider + ListModelsProvider> ProviderTrait for T {}
 use crate::{
     anyhttp_gpui::GpuiHttpWrapper,
     assets::AstrumLogoKind,
+    blocks::models_menu::ModelsCache,
     managers::{DbError, UniqueId},
     secrets::{get_secret, remove_secret, set_secret},
     utils::FrontInsertMap,
@@ -35,6 +36,8 @@ pub struct ModelsManager {
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     pub current_model: ProviderModelPair,
     pub chat_titles_model: ProviderModelPair,
+    /// Cache for provider models
+    pub models_cache: Entity<ModelsCache>,
 }
 
 impl<'a> ModelsManager {
@@ -52,6 +55,7 @@ impl<'a> ModelsManager {
                 provider_name: cx.new(|_cx| None),
                 model: cx.new(|_cx| None),
             },
+            models_cache: cx.new(|_cx| ModelsCache::new()),
         }
     }
 
@@ -622,6 +626,11 @@ impl<'a> ModelsManager {
         let secret_name =
             Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
         let _ = remove_secret(&secret_name);
+
+        // Delete cached models for this provider
+        self.models_cache.update(cx, |cache, _| {
+            cache.delete_models_for_provider(&provider_id);
+        });
 
         self.providers.update(cx, |providers, cx| {
             providers.remove(&provider_id);

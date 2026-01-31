@@ -48,6 +48,10 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 secrecy = "0.10.3"
 dotenvy = "0.15.7"
 
+# Logging.
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
 # Fixes "two different versions of crate `core_graphics` are being used" error.
 core-text = "=21.0.0"
 rand = "0.9.2"

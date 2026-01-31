@@ -17,12 +17,7 @@ use gpui_tesserae::{
 use serde_json::value::RawValue;
 use smol::lock::RwLock;
 
-use crate::{
-    Managers,
-    assets::AstrumIconKind,
-    blocks::{ModelPicker, models_menu::fetch_all_models},
-    managers::ValuesOnly,
-};
+use crate::{Managers, assets::AstrumIconKind, blocks::ModelPicker, managers::ValuesOnly};
 
 mod existing_chat;
 use existing_chat::render_existing_chat;
@@ -109,11 +104,14 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
 
+    // Get the models cache from the manager
+    let models_cache = elem.managers.read_blocking().models.models_cache.clone();
+
     // Create model picker with shared setup logic (None uses default callback)
     let picker = ModelPicker::new(
         elem.id.clone(),
         elem.managers.clone(),
-        false,
+        models_cache.clone(),
         None,
         window,
         cx,
@@ -121,7 +119,6 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     let models_state_for_toggle = picker.state.clone();
     let models_state_for_menu = picker.state.clone();
-    let managers_for_toggle = elem.managers.clone();
 
     // Get menu visibility for arrow rotation
     let menu_visible_delta = picker
@@ -172,15 +169,6 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 )
                 .on_click(move |_checked, _window, cx| {
                     models_state_for_toggle.toggle_menu(cx);
-
-                    // Fetch models if not already loaded (<=1 accounts for placeholder item)
-                    if models_state_for_toggle.items.read(cx).len() <= 1 {
-                        fetch_all_models(
-                            managers_for_toggle.clone(),
-                            models_state_for_toggle.clone(),
-                            cx,
-                        );
-                    }
                 }),
         ))
         .child(
