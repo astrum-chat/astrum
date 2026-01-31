@@ -52,6 +52,9 @@ dotenvy = "0.15.7"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
+# Hashing.
+sha2 = "0.10"
+
 # Fixes "two different versions of crate `core_graphics` are being used" error.
 core-text = "=21.0.0"
 rand = "0.9.2"

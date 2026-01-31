@@ -500,6 +500,28 @@ impl<'a> ModelsManager {
         Ok(())
     }
 
+    fn create_provider_client(
+        kind: &ProviderKind,
+        provider_id: &UniqueId,
+        name: &str,
+        url: String,
+        http_client: GpuiHttpWrapper,
+    ) -> Arc<dyn ProviderTrait> {
+        match kind {
+            ProviderKind::Ollama => Arc::new(OllamaProvider::new(http_client).url(url)),
+            ProviderKind::OpenAi => {
+                let api_key = get_secret(Self::construct_provider_api_key_name(provider_id, name))
+                    .unwrap_or_default();
+                Arc::new(OpenAiProvider::new(http_client, api_key).url(url))
+            }
+            ProviderKind::Anthropic => {
+                let api_key = get_secret(Self::construct_provider_api_key_name(provider_id, name))
+                    .unwrap_or_default();
+                Arc::new(AnthropicProvider::new(http_client, api_key).url(url))
+            }
+        }
+    }
+
     fn init_provider(
         &mut self,
         cx: &mut App,
@@ -510,23 +532,8 @@ impl<'a> ModelsManager {
         icon: String,
         http_client: GpuiHttpWrapper,
     ) -> Option<()> {
-        let inner: Arc<dyn ProviderTrait> = match kind {
-            ProviderKind::Ollama => Arc::new(OllamaProvider::new(http_client).url(url.clone())),
-            ProviderKind::OpenAi => {
-                let provider_api_key =
-                    get_secret(Self::construct_provider_api_key_name(&provider_id, &name))
-                        .unwrap_or_default();
-
-                Arc::new(OpenAiProvider::new(http_client, provider_api_key).url(url.clone()))
-            }
-            ProviderKind::Anthropic => {
-                let provider_api_key =
-                    get_secret(Self::construct_provider_api_key_name(&provider_id, &name))
-                        .unwrap_or_default();
-
-                Arc::new(AnthropicProvider::new(http_client, provider_api_key).url(url.clone()))
-            }
-        };
+        let inner =
+            Self::create_provider_client(kind, provider_id, &name, url.clone(), http_client);
 
         self.providers.update(cx, |providers, cx| {
             let provider = Arc::new(Provider::new(cx, inner, name, url, icon));
@@ -535,6 +542,39 @@ impl<'a> ModelsManager {
         });
 
         Some(())
+    }
+
+    /// Reinitialize a provider's inner client with updated URL/API key.
+    pub fn reinit_provider(&mut self, cx: &mut App, provider_id: &UniqueId) -> Result<(), DbError> {
+        let db = self
+            .db_connection
+            .as_ref()
+            .ok_or_else(|| DbError::MissingData("db_connection"))?;
+
+        let kind: ProviderKind = db
+            .query_row(
+                "SELECT kind FROM providers WHERE id = ?1",
+                [&provider_id],
+                |row| row.get(0),
+            )
+            .map_err(DbError::SqliteError)?;
+
+        let provider = self.get_provider(cx, provider_id)?;
+        let name = provider.name.read(cx).to_string();
+        let url = provider.url.read(cx).to_string();
+        let icon = provider.icon.read(cx).to_string();
+
+        let http_client = GpuiHttpWrapper::new(cx.http_client());
+        let inner =
+            Self::create_provider_client(&kind, provider_id, &name, url.clone(), http_client);
+
+        self.providers.update(cx, |providers, cx| {
+            let new_provider = Arc::new(Provider::new(cx, inner, name, url, icon));
+            providers.insert(provider_id.clone(), new_provider);
+            cx.notify();
+        });
+
+        Ok(())
     }
 
     fn construct_provider_api_key_name(provider_id: &UniqueId, name: &str) -> String {

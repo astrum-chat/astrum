@@ -3,6 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
+
 use tracing::{debug, error, info};
 
 use gpui::{
@@ -43,6 +45,8 @@ pub struct ModelsCache {
     all_models: Vec<CachedModel>,
     /// Per-provider model lists with fetch timestamps
     per_provider: HashMap<UniqueId, ProviderModels>,
+    /// Cached config state per provider for change detection
+    provider_config_cache: HashMap<UniqueId, CachedProviderState>,
 }
 
 impl ModelsCache {
@@ -50,6 +54,7 @@ impl ModelsCache {
         Self {
             all_models: Vec::new(),
             per_provider: HashMap::new(),
+            provider_config_cache: HashMap::new(),
         }
     }
 
@@ -102,7 +107,7 @@ impl ModelsCache {
         self.rebuild_all_models();
     }
 
-    /// Remove a provider's models, rebuilds all_models
+    /// Remove a provider's models and config cache, rebuilds all_models
     pub fn delete_models_for_provider(&mut self, provider_id: &UniqueId) {
         if let Some(removed) = self.per_provider.remove(provider_id) {
             info!(
@@ -111,7 +116,21 @@ impl ModelsCache {
                 "Invalidated cache for provider"
             );
         }
+        self.provider_config_cache.remove(provider_id);
         self.rebuild_all_models();
+    }
+
+    /// Get or create cached config state for a provider.
+    /// If no cache exists, creates one with the current values.
+    fn get_or_create_config_cache(
+        &mut self,
+        provider_id: &UniqueId,
+        current_url: &str,
+        current_api_key: &str,
+    ) -> &mut CachedProviderState {
+        self.provider_config_cache
+            .entry(provider_id.clone())
+            .or_insert_with(|| CachedProviderState::new(current_url, current_api_key))
     }
 
     /// Rebuild the flat all_models list from per_provider data
@@ -126,6 +145,51 @@ impl ModelsCache {
                 });
             }
         }
+    }
+}
+
+/// Compute a SHA-256 hash for an API key to compare without storing the actual key
+fn hash_api_key(api_key: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(api_key.as_bytes());
+    hasher.finalize().into()
+}
+
+/// Cached state for detecting changes to provider settings.
+/// Used to avoid unnecessary model refetches when URL/API key haven't changed.
+#[derive(Clone)]
+struct CachedProviderState {
+    url: String,
+    api_key_hash: [u8; 32],
+}
+
+impl CachedProviderState {
+    /// Create a new cached provider state from the current URL and API key
+    pub fn new(url: impl Into<String>, api_key: &str) -> Self {
+        Self {
+            url: url.into(),
+            api_key_hash: hash_api_key(api_key),
+        }
+    }
+
+    /// Check if the URL has changed. Returns true if changed.
+    pub fn url_changed(&self, new_url: &str) -> bool {
+        self.url != new_url
+    }
+
+    /// Check if the API key has changed. Returns true if changed.
+    pub fn api_key_changed(&self, new_api_key: &str) -> bool {
+        self.api_key_hash != hash_api_key(new_api_key)
+    }
+
+    /// Update the cached URL
+    pub fn set_url(&mut self, url: impl Into<String>) {
+        self.url = url.into();
+    }
+
+    /// Update the cached API key hash
+    pub fn set_api_key(&mut self, api_key: &str) {
+        self.api_key_hash = hash_api_key(api_key);
     }
 }
 
@@ -312,23 +376,130 @@ pub fn populate_state_from_cache(
     }
 }
 
-/// Refetches models for a single provider and updates the cache.
-/// Called when a provider's configuration (URL, API key) changes.
+/// Reason for refetching provider models.
+pub enum ProviderConfigChange {
+    /// New provider created - skip change detection
+    Create,
+    /// URL may have changed
+    Url(String),
+    /// API key may have changed (None = cleared)
+    ApiKey(Option<String>),
+}
+
+/// Refetches models for a provider. For `Url` and `ApiKey` changes, checks if
+/// the value actually changed before applying and refetching.
 pub fn refetch_provider_models(
     managers: Arc<RwLock<Managers>>,
     provider_id: UniqueId,
+    config_change: ProviderConfigChange,
+    cx: &mut App,
+) {
+    let models_cache = managers.read_arc_blocking().models.models_cache.clone();
+
+    if !matches!(config_change, ProviderConfigChange::Create) {
+        let should_proceed = check_and_update_config_cache(
+            &managers,
+            &models_cache,
+            &provider_id,
+            &config_change,
+            cx,
+        );
+
+        if !should_proceed {
+            return;
+        }
+
+        apply_config_change(&managers, &provider_id, &config_change, cx);
+    }
+
+    spawn_fetch_models(managers, provider_id, models_cache, cx);
+}
+
+fn check_and_update_config_cache(
+    managers: &Arc<RwLock<Managers>>,
+    models_cache: &Entity<ModelsCache>,
+    provider_id: &UniqueId,
+    config_change: &ProviderConfigChange,
+    cx: &mut App,
+) -> bool {
+    let managers_guard = managers.read_arc_blocking();
+
+    let current_url = cx
+        .read_entity(&managers_guard.models.providers, |providers, _cx| {
+            providers
+                .get(provider_id)
+                .map(|p| p.url.read(_cx).to_string())
+        })
+        .unwrap_or_default();
+
+    let current_api_key = managers_guard
+        .models
+        .get_provider_api_key(cx, provider_id)
+        .unwrap_or_default();
+
+    models_cache.update(cx, |cache, _| {
+        let config_cache =
+            cache.get_or_create_config_cache(provider_id, &current_url, &current_api_key);
+
+        match config_change {
+            ProviderConfigChange::Create => true,
+            ProviderConfigChange::Url(url) => {
+                let changed = config_cache.url_changed(url);
+                if changed {
+                    config_cache.set_url(url);
+                }
+                changed
+            }
+            ProviderConfigChange::ApiKey(api_key) => {
+                let key = api_key.as_deref().unwrap_or("");
+                let changed = config_cache.api_key_changed(key);
+                if changed {
+                    config_cache.set_api_key(key);
+                }
+                changed
+            }
+        }
+    })
+}
+
+fn apply_config_change(
+    managers: &Arc<RwLock<Managers>>,
+    provider_id: &UniqueId,
+    config_change: &ProviderConfigChange,
+    cx: &mut App,
+) {
+    let mut managers_guard = managers.write_arc_blocking();
+    match config_change {
+        ProviderConfigChange::Create => {}
+        ProviderConfigChange::Url(url) => {
+            let _ = managers_guard
+                .models
+                .edit_provider_url(cx, provider_id.clone(), url.clone());
+        }
+        ProviderConfigChange::ApiKey(api_key) => {
+            let _ = managers_guard.models.edit_provider_api_key(
+                cx,
+                provider_id.clone(),
+                api_key.clone(),
+            );
+        }
+    }
+    let _ = managers_guard.models.reinit_provider(cx, provider_id);
+}
+
+fn spawn_fetch_models(
+    managers: Arc<RwLock<Managers>>,
+    provider_id: UniqueId,
+    models_cache: Entity<ModelsCache>,
     cx: &mut App,
 ) {
     cx.spawn(async move |cx: &mut AsyncApp| {
-        let (provider, models_cache): (Option<crate::managers::Provider>, Entity<ModelsCache>) = {
+        let provider: Option<crate::managers::Provider> = {
             let managers = managers.read_arc_blocking();
-            let models_cache = managers.models.models_cache.clone();
 
-            let provider = cx.read_entity(&managers.models.providers, |providers, _cx| {
+            cx.read_entity(&managers.models.providers, |providers, _cx| {
                 providers.get(&provider_id).map(|p| p.as_ref().clone())
-            });
-
-            (provider, models_cache)
+            })
         };
 
         let Some(provider) = provider else {
@@ -341,7 +512,7 @@ pub fn refetch_provider_models(
         debug!(
             provider_name = %provider_name,
             provider_id = %provider_id,
-            "Refetching models for provider"
+            "Fetching models for provider"
         );
 
         match provider.inner.list_models().await {
