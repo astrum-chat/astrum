@@ -13,7 +13,9 @@ use gpui_tesserae::{
 };
 use smol::lock::RwLock;
 
-use crate::{OpenSettings, assets::AstrumIconKind, managers::Managers};
+use crate::{
+    OpenSettings, assets::AstrumIconKind, managers::Managers, utils::search::filter_by_relevance,
+};
 
 #[derive(IntoElement)]
 pub struct Sidebar {
@@ -84,6 +86,8 @@ impl RenderOnce for Sidebar {
                     }),
             );
 
+        let search_query = search_chats_input_state.read(cx).value().to_string();
+
         let threads_section = div()
             .id(self.id.with_suffix("threads_section"))
             .flex()
@@ -100,21 +104,27 @@ impl RenderOnce for Sidebar {
                 this
             })
             .map(|this| match chats.chats_iter(cx) {
-                Some(iter) => this.children(iter.map(|chat| {
-                    let current_chat_id_state = current_chat_id_state.clone();
-                    let chat_id = chat.chat_id.clone();
+                Some(iter) => {
+                    let filtered_chats = filter_by_relevance(iter, &search_query, |chat| {
+                        chat.title.read(cx).as_str()
+                    });
 
-                    Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
-                        .text(chat.title.read(cx))
-                        .variant(ToggleVariant::Secondary)
-                        .checked(current_chat_id == Some(&chat_id))
-                        .icon(AstrumIconKind::Chat)
-                        .on_click(move |_checked, _window, cx| {
-                            current_chat_id_state
-                                .update(cx, |this, _cx| *this = Some(chat_id.clone()));
-                        })
-                        .justify_start()
-                })),
+                    this.children(filtered_chats.into_iter().map(|chat| {
+                        let current_chat_id_state = current_chat_id_state.clone();
+                        let chat_id = chat.chat_id.clone();
+
+                        Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
+                            .text(chat.title.read(cx))
+                            .variant(ToggleVariant::Secondary)
+                            .checked(current_chat_id == Some(&chat_id))
+                            .icon(AstrumIconKind::Chat)
+                            .on_click(move |_checked, _window, cx| {
+                                current_chat_id_state
+                                    .update(cx, |this, _cx| *this = Some(chat_id.clone()));
+                            })
+                            .justify_start()
+                    }))
+                }
 
                 None => this,
             });
