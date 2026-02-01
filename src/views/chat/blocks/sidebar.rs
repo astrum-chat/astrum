@@ -200,7 +200,7 @@ impl RenderOnce for Sidebar {
                     let chat_id = chat.chat_id.clone();
 
                     Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
-                        .text(chat.title.read(cx))
+                        .text(chat.title.read(cx).replace("\n", " ").replace("  ", " "))
                         .variant(ToggleVariant::Secondary)
                         .checked(current_chat_id == Some(&chat_id))
                         .icon(AstrumIconKind::Chat)

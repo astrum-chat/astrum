@@ -126,6 +126,7 @@ impl RenderOnce for ChatMessage {
 
                 selectable_content
                     .text_color(primary_text_color)
+                    .w_full()
                     .into_any_element()
             }
         }
