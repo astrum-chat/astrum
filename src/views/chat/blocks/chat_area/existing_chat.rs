@@ -106,7 +106,8 @@ impl RenderOnce for ChatMessage {
         let selectable_content =
             SelectableText::new(self.id.with_suffix("content"), selectable_content_state)
                 .selection_color(selection_color)
-                .selection_rounded(px(4.))
+                .selection_rounded(px(6.))
+                .selection_rounded_smoothing(1.)
                 .w_auto()
                 .max_w_full()
                 .word_wrap(true)
