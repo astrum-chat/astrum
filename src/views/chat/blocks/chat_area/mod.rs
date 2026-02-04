@@ -191,38 +191,50 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     // Check if currently streaming to determine button behavior
     let is_streaming = *elem.managers.read_blocking().chats.is_streaming.read(cx);
+    let has_input_text = !chat_box_input_state.read(cx).value().is_empty();
 
-    let chat_box_right_items = div().flex().flex_row_reverse().gap(px(7.)).child(
-        Button::new(elem.id.with_suffix("send_msg_btn"))
-            .icon(if is_streaming {
-                AstrumIconKind::Stop
-            } else {
-                AstrumIconKind::Send
-            })
-            .icon_size(px(18.))
-            .p(px(9.))
-            .disabled(picker.has_no_providers || picker.has_no_model)
-            .map(|this| {
-                let chat_box_input_state = chat_box_input_state.clone();
-                let managers = elem.managers.clone();
-
-                this.on_click(move |_event, _window, cx| {
-                    let managers_guard = managers.read_blocking();
-                    let is_streaming = *managers_guard.chats.is_streaming.read(cx);
-
-                    if is_streaming {
-                        // Cancel the current streaming response
-                        managers_guard.chats.cancel_streaming(cx);
-                    } else {
-                        // Send a new message
-                        let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
-                        let Some(contents) = contents else { return };
-                        drop(managers_guard);
-                        send_message(managers.clone(), contents, cx);
-                    }
+    let chat_box_right_items = div()
+        .flex()
+        .flex_row_reverse()
+        .flex_wrap()
+        .flex_grow()
+        .gap(px(7.))
+        .child(
+            Button::new(elem.id.with_suffix("send_msg_btn"))
+                .icon(if is_streaming {
+                    AstrumIconKind::Stop
+                } else {
+                    AstrumIconKind::Send
                 })
-            }),
-    );
+                .icon_size(px(18.))
+                .p(px(9.))
+                .disabled(
+                    picker.has_no_providers
+                        || picker.has_no_model
+                        || (!is_streaming && !has_input_text),
+                )
+                .map(|this| {
+                    let chat_box_input_state = chat_box_input_state.clone();
+                    let managers = elem.managers.clone();
+
+                    this.on_click(move |_event, _window, cx| {
+                        let managers_guard = managers.read_blocking();
+                        let is_streaming = *managers_guard.chats.is_streaming.read(cx);
+
+                        if is_streaming {
+                            // Cancel the current streaming response
+                            managers_guard.chats.cancel_streaming(cx);
+                        } else {
+                            // Send a new message
+                            let contents =
+                                chat_box_input_state.update(cx, |this, _cx| this.clear());
+                            let Some(contents) = contents else { return };
+                            drop(managers_guard);
+                            send_message(managers.clone(), contents, cx);
+                        }
+                    })
+                }),
+        );
 
     Input::new(
         elem.id.with_suffix("chat_box"),
@@ -272,11 +284,10 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         div()
             .max_w_full()
             .flex()
-            .items_start()
             .min_h_auto()
-            .gap(px(7.))
             .justify_between()
             .flex_wrap()
+            .gap(px(7.))
             .child(chat_box_left_items)
             .child(chat_box_right_items),
     )
