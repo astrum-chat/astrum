@@ -193,6 +193,9 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     let is_streaming = *elem.managers.read_blocking().chats.is_streaming.read(cx);
     let has_input_text = !chat_box_input_state.read(cx).value().is_empty();
 
+    let submit_disabled =
+        picker.has_no_providers || picker.has_no_model || (!is_streaming && !has_input_text);
+
     let chat_box_right_items = div()
         .flex()
         .flex_row_reverse()
@@ -208,11 +211,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 })
                 .icon_size(px(18.))
                 .p(px(9.))
-                .disabled(
-                    picker.has_no_providers
-                        || picker.has_no_model
-                        || (!is_streaming && !has_input_text),
-                )
+                .disabled(submit_disabled)
                 .map(|this| {
                     let chat_box_input_state = chat_box_input_state.clone();
                     let managers = elem.managers.clone();
@@ -241,11 +240,12 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         chat_box_input_state.clone(),
     )
     .line_clamp(12)
+    .submit_disabled(submit_disabled)
     .word_wrap(true)
-    .newline_on_shift_enter(true)
-    .on_enter({
+    .on_submit({
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
+
         move |window, cx| {
             let managers_guard = managers.read_blocking();
             let is_streaming = *managers_guard.chats.is_streaming.read(cx);
@@ -263,8 +263,6 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
             }
 
             let contents = chat_box_input_state.update(cx, |this, _cx| this.clear());
-
-            window.blur();
 
             let Some(contents) = contents else { return };
             drop(managers_guard);
