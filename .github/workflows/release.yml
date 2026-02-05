@@ -10,7 +10,7 @@ env:
 jobs:
   create-release:
     name: Create Release
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
@@ -34,7 +34,7 @@ jobs:
         include:
           - host: linux
             os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: blacksmith-4vcpu-ubuntu-2404
             label: linux-x86_64
 
           - host: windows
