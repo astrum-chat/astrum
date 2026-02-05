@@ -4,7 +4,9 @@ use gpui::{ElementId, Window, div, prelude::*, px};
 use gpui_tesserae::{ElementIdExt, theme::ThemeExt};
 use smol::lock::RwLock;
 
-use crate::{blocks::TitleBar, managers::Managers};
+#[cfg(target_os = "macos")]
+use crate::views::MACOS_TITLEBAR_PADDING;
+use crate::{blocks::TitleBar, managers::Managers, views::FULLSCREEN_PADDING};
 
 mod blocks;
 use blocks::{ChatArea, Sidebar};
@@ -38,12 +40,12 @@ impl Render for ChatView {
         #[cfg(target_os = "macos")]
         let base = base.when_else(
             window.is_fullscreen(),
-            |this| this.pt(px(10.)),
-            |this| this.pt(px(33.)),
+            |this| this.pt(FULLSCREEN_PADDING),
+            |this| this.pt(MACOS_TITLEBAR_PADDING),
         );
 
         #[cfg(not(target_os = "macos"))]
-        let base = base.pt(px(10.));
+        let base = base.pt(FULLSCREEN_PADDING);
 
         base.absolute()
             .child(TitleBar::new())

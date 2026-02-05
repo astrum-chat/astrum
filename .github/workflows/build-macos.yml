@@ -128,6 +128,15 @@ jobs:
             "${{ matrix.artifact }}" \
             "Astrum.app"
 
+          # Hide .background folder in the DMG
+          hdiutil convert "${{ matrix.artifact }}" -format UDRW -o temp.dmg
+          hdiutil attach temp.dmg -mountpoint /Volumes/Astrum
+          SetFile -a V /Volumes/Astrum/.background
+          hdiutil detach /Volumes/Astrum
+          rm "${{ matrix.artifact }}"
+          hdiutil convert temp.dmg -format UDZO -o "${{ matrix.artifact }}"
+          rm temp.dmg
+
       - name: Upload macOS artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

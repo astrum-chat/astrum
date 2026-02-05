@@ -10,3 +10,4 @@ Cargo.lock
 
 # Generated DMG background image (created by tools/dmg_bg during CI build)
 assets/bundle/dmg-background.png
+__pycache__
