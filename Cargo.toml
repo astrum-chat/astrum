@@ -3,6 +3,11 @@ name = "astrum"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+macos = ["gpui/macos-blade"]
+linux = ["gpui/wayland", "gpui/x11"]
+windows = ["gpui/windows-manifest"]
 
 [dependencies]
 gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
@@ -12,7 +17,7 @@ anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "a
 # anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
 granular_btreemap = { path = "crates/granular_btreemap" }
 
-gpui = "0.2.2"
+gpui = { version = "0.2.2", default-features = false }
 gpui_squircle = { git = "https://github.com/astrum-chat/gpui_squircle" }
 gpui_transitions = "0.1.5"
 rust-embed = "8.9.0"
