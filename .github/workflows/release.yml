@@ -1,0 +1,256 @@
+name: Build
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle --locked
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create macOS app bundle
+        run: cargo bundle --release
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "Astrum" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Astrum.app" 150 190 \
+            --app-drop-link 450 185 \
+            "Astrum-macos.dmg" \
+            "target/release/bundle/osx/Astrum.app"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrum-macos
+          path: |
+            Astrum-macos.dmg
+            target/release/bundle/osx/Astrum.app
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libwayland-dev \
+            libvulkan-dev \
+            libssl-dev \
+            pkg-config \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libexpat1-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-build-
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create AppImage
+        run: |
+          # Download linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          # Create AppDir structure
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+
+          # Copy binary
+          cp target/release/astrum AppDir/usr/bin/
+
+          # Copy icon
+          cp assets/bundle/icons.iconset/icon_256x256.png AppDir/usr/share/icons/hicolor/256x256/apps/astrum.png
+
+          # Create desktop file
+          cat > AppDir/usr/share/applications/astrum.desktop << EOF
+          [Desktop Entry]
+          Name=Astrum
+          Exec=astrum
+          Icon=astrum
+          Type=Application
+          Categories=Utility;
+          EOF
+
+          # Also copy to AppDir root for linuxdeploy
+          cp AppDir/usr/share/applications/astrum.desktop AppDir/
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/astrum.png AppDir/
+
+          # Create AppImage
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage
+
+      - name: Rename AppImage
+        run: mv Astrum*.AppImage Astrum-linux-x86_64.AppImage
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrum-linux
+          path: |
+            Astrum-linux-x86_64.AppImage
+            target/release/astrum
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-${{ hashFiles('**/*.rs') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-
+            ${{ runner.os }}-cargo-build-
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Create Windows installer with Inno Setup
+        run: |
+          # Download and install Inno Setup
+          choco install innosetup -y
+
+          # Create Inno Setup script
+          @"
+          [Setup]
+          AppName=Astrum
+          AppVersion=0.1.0
+          AppPublisher=Astrum
+          DefaultDirName={autopf}\Astrum
+          DefaultGroupName=Astrum
+          OutputDir=.
+          OutputBaseFilename=Astrum-windows-x64-setup
+          Compression=lzma2
+          SolidCompression=yes
+          ArchitecturesInstallIn64BitMode=x64compatible
+
+          [Files]
+          Source: "target\release\astrum.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+          [Icons]
+          Name: "{group}\Astrum"; Filename: "{app}\astrum.exe"
+          Name: "{commondesktop}\Astrum"; Filename: "{app}\astrum.exe"
+
+          [Run]
+          Filename: "{app}\astrum.exe"; Description: "Launch Astrum"; Flags: postinstall nowait skipifsilent
+          "@ | Out-File -FilePath setup.iss -Encoding UTF8
+
+          # Run Inno Setup
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" setup.iss
+        shell: pwsh
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: astrum-windows
+          path: |
+            Astrum-windows-x64-setup.exe
+            target/release/astrum.exe
+
+  release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
+            echo "Release ${{ github.ref_name }} already exists. Skipping creation."
+          else
+            gh release create ${{ github.ref_name }} \
+              --draft \
+              --verify-tag \
+              --title "${{ github.ref_name }}" \
+              --generate-notes \
+              astrum-macos/Astrum-macos.dmg \
+              astrum-linux/Astrum-linux-x86_64.AppImage \
+              astrum-windows/Astrum-windows-x64-setup.exe
+          fi
