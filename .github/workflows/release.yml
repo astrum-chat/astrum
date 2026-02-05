@@ -4,13 +4,10 @@ on:
   push:
     tags: ["v*"]
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   create-release:
     name: Create Release
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -25,131 +22,3 @@ jobs:
           else
             gh release create ${{ github.ref_name }} --draft --verify-tag --title ${{ github.ref_name }}
           fi
-
-  build:
-    needs: ["create-release"]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - host: linux
-            os: blacksmith-4vcpu-ubuntu-2404
-            target: x86_64-unknown-linux-gnu
-            label: linux-x86_64
-            feature: linux
-
-          - host: windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x86_64
-            feature: windows
-
-          - host: macos
-            os: macos-26
-            target: aarch64-apple-darwin
-            label: macos-aarch64
-            feature: macos
-
-    name: Build (${{ matrix.label }})
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Linux dependencies
-        if: matrix.host == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
-            libvulkan-dev \
-            libssl-dev \
-            pkg-config \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libexpat1-dev \
-            libdbus-1-dev
-
-      - name: Restore Rust Cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.os }}-cargo-
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92.0
-          targets: ${{ matrix.target }}
-
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} --features ${{ matrix.feature }}
-
-      - name: Save Rust Cache
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install cargo-bundle
-        run: cargo install cargo-bundle --locked
-
-      - name: Create app bundle (macOS)
-        if: matrix.host == 'macos'
-        run: cargo bundle --release --target ${{ matrix.target }} --features ${{ matrix.feature }}
-
-      - name: Create app bundle (Linux)
-        if: matrix.host == 'linux'
-        run: cargo bundle --release --target ${{ matrix.target }} --features ${{ matrix.feature }} --format appimage
-
-      - name: Create app bundle (Windows)
-        if: matrix.host == 'windows'
-        run: cargo bundle --release --target ${{ matrix.target }} --features ${{ matrix.feature }}
-
-      - name: Create DMG (macOS)
-        if: matrix.host == 'macos'
-        run: |
-          brew install create-dmg
-          create-dmg \
-            --volname "Astrum" \
-            --window-pos 200 120 \
-            --window-size 600 400 \
-            --icon-size 100 \
-            --icon "Astrum.app" 150 190 \
-            --app-drop-link 450 185 \
-            "Astrum-${{ matrix.label }}.dmg" \
-            "target/${{ matrix.target }}/release/bundle/osx/Astrum.app"
-
-      - name: Upload macOS artifact
-        if: matrix.host == 'macos'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} "Astrum-${{ matrix.label }}.dmg"
-
-      - name: Upload Linux artifact
-        if: matrix.host == 'linux'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} target/${{ matrix.target }}/release/bundle/appimage/astrum_0.0.0_x86_64.AppImage --clobber
-
-      - name: Upload Windows artifact
-        if: matrix.host == 'windows'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
-          gh release upload ${{ github.ref_name }} "target/${{ matrix.target }}/release/bundle/msi/astrum_${VERSION}_x64.msi" --clobber
-        shell: pwsh

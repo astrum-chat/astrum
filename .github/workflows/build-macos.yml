@@ -1,0 +1,106 @@
+name: Build macOS
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (macOS Universal)
+    runs-on: macos-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+
+      - name: Restore Rust Cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            macos-cargo-
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Build x86_64
+        run: cargo build --release --target x86_64-apple-darwin --features macos
+
+      - name: Build aarch64
+        run: cargo build --release --target aarch64-apple-darwin --features macos
+
+      - name: Save Rust Cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Create universal binary
+        run: |
+          lipo -create -output astrum \
+            target/x86_64-apple-darwin/release/astrum \
+            target/aarch64-apple-darwin/release/astrum
+
+      - name: Create .app bundle
+        run: |
+          mkdir -p Astrum.app/Contents/MacOS
+          mkdir -p Astrum.app/Contents/Resources
+          cp astrum Astrum.app/Contents/MacOS/
+          cp assets/bundle/icons.icns Astrum.app/Contents/Resources/
+          cat > Astrum.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>astrum</string>
+            <key>CFBundleIdentifier</key>
+            <string>chat.astrum.astrum</string>
+            <key>CFBundleName</key>
+            <string>Astrum</string>
+            <key>CFBundleIconFile</key>
+            <string>icons.icns</string>
+            <key>CFBundleVersion</key>
+            <string>0.1.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "Astrum" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Astrum.app" 150 190 \
+            --app-drop-link 450 185 \
+            "Astrum-macos-universal.dmg" \
+            "Astrum.app"
+
+      - name: Upload macOS artifact
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          gh release upload "$TAG" Astrum-macos-universal.dmg --clobber
