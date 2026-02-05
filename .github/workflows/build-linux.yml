@@ -88,9 +88,9 @@ jobs:
           cp AppDir/usr/share/icons/hicolor/256x256/apps/astrum.png AppDir/
 
           ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage
-          mv Astrum*.AppImage Astrum-linux-x86_64.AppImage
+          mv Astrum*.AppImage astrum_linux_${{ github.ref_name }}.AppImage
 
       - name: Upload Linux artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} Astrum-linux-x86_64.AppImage --clobber
+        run: gh release upload ${{ github.ref_name }} astrum_linux_${{ github.ref_name }}.AppImage --clobber

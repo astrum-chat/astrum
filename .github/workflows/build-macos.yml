@@ -17,12 +17,12 @@ jobs:
           - runner: macos-26
             label: Tahoe
             min_version: "26.0"
-            artifact: Astrum-macos-tahoe.dmg
+            artifact: astrum_macos_tahoe+_universal_${{ github.ref_name }}.dmg
 
           - runner: macos-15
             label: Sequoia
             min_version: "15.0"
-            artifact: Astrum-macos-sequoia.dmg
+            artifact: astrum_macos_sequoia+_universal_${{ github.ref_name }}.dmg
 
     permissions:
       contents: write

@@ -46,7 +46,10 @@ jobs:
             target
           key: windows-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Rename artifact
+        run: mv target/x86_64-pc-windows-msvc/release/astrum.exe astrum_windows_${{ github.ref_name }}.exe
+
       - name: Upload Windows artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} target/x86_64-pc-windows-msvc/release/astrum.exe --clobber
+        run: gh release upload ${{ github.ref_name }} astrum_windows_${{ github.ref_name }}.exe --clobber
