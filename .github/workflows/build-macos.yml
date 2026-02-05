@@ -117,6 +117,8 @@ jobs:
             --icon-size 100 \
             --icon "Astrum.app" 150 190 \
             --app-drop-link 450 185 \
+            --background "assets/bundle/dmg-background.png" \
+            --add-file "unquarantine.sh" "assets/bundle/unquarantine.sh" 300 380 \
             "${{ matrix.artifact }}" \
             "Astrum.app"
 
