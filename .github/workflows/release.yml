@@ -34,13 +34,8 @@ jobs:
         include:
           - host: linux
             os: ubuntu-latest
-            target: blacksmith-4vcpu-ubuntu-2404
+            target: x86_64-unknown-linux-gnu
             label: linux-x86_64
-
-          - host: windows
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: windows-x86_64
 
           - host: macos
             os: macos-latest
@@ -69,7 +64,8 @@ jobs:
             pkg-config \
             libfontconfig1-dev \
             libfreetype6-dev \
-            libexpat1-dev
+            libexpat1-dev \
+            libdbus-1-dev
 
       - name: Restore Rust Cache
         uses: actions/cache/restore@v4
@@ -111,10 +107,6 @@ jobs:
         if: matrix.host == 'linux'
         run: cargo bundle --release --target ${{ matrix.target }} --format appimage
 
-      - name: Create app bundle (Windows)
-        if: matrix.host == 'windows'
-        run: cargo bundle --release --target ${{ matrix.target }}
-
       - name: Create DMG (macOS)
         if: matrix.host == 'macos'
         run: |
@@ -140,12 +132,3 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ github.ref_name }} target/${{ matrix.target }}/release/bundle/appimage/astrum.AppImage --clobber
-
-      - name: Upload Windows artifact
-        if: matrix.host == 'windows'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
-          gh release upload ${{ github.ref_name }} "target/${{ matrix.target }}/release/bundle/msi/astrum_${VERSION}_x64.msi" --clobber
-        shell: pwsh
