@@ -4,6 +4,8 @@
 
 <h1 align="center">Astrum</h1>
 
+<br>
+
 <p align="center">
     A simple, private, cross-platform desktop app for chatting with AI. All of your conversations stay on your device.
 </p>
