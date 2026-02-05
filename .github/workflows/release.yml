@@ -37,6 +37,11 @@ jobs:
             target: x86_64-unknown-linux-gnu
             label: linux-x86_64
 
+          - host: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-x86_64
+
           - host: macos
             os: macos-latest
             target: aarch64-apple-darwin
@@ -48,6 +53,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Delete Cargo.lock to regenerate for target platform
+        run: rm -f Cargo.lock
+        shell: bash
 
       - name: Install Linux dependencies
         if: matrix.host == 'linux'
@@ -107,6 +116,10 @@ jobs:
         if: matrix.host == 'linux'
         run: cargo bundle --release --target ${{ matrix.target }} --format appimage
 
+      - name: Create app bundle (Windows)
+        if: matrix.host == 'windows'
+        run: cargo bundle --release --target ${{ matrix.target }}
+
       - name: Create DMG (macOS)
         if: matrix.host == 'macos'
         run: |
@@ -132,3 +145,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload ${{ github.ref_name }} target/${{ matrix.target }}/release/bundle/appimage/astrum.AppImage --clobber
+
+      - name: Upload Windows artifact
+        if: matrix.host == 'windows'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $VERSION = "${{ github.ref_name }}" -replace '^v', ''
+          gh release upload ${{ github.ref_name }} "target/${{ matrix.target }}/release/bundle/msi/astrum_${VERSION}_x64.msi" --clobber
+        shell: pwsh
