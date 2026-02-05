@@ -107,18 +107,24 @@ jobs:
           </plist>
           EOF
 
+      - name: Generate DMG background
+        run: |
+          pip install pillow
+          python -m tools.dmg_bg assets/bundle/dmg-background.png assets/app/fonts/geist_1.7.0/fonts
+
       - name: Create DMG
         run: |
           brew install create-dmg
+          chmod +x assets/bundle/unquarantine.command
           create-dmg \
             --volname "Astrum" \
             --window-pos 200 120 \
-            --window-size 600 400 \
+            --window-size 600 580 \
             --icon-size 100 \
-            --icon "Astrum.app" 150 190 \
-            --app-drop-link 450 185 \
+            --icon "Astrum.app" 150 90 \
+            --app-drop-link 450 85 \
             --background "assets/bundle/dmg-background.png" \
-            --add-file "unquarantine.sh" "assets/bundle/unquarantine.sh" 300 380 \
+            --add-file "unquarantine.command" "assets/bundle/unquarantine.command" 300 370 \
             "${{ matrix.artifact }}" \
             "Astrum.app"
 
