@@ -33,17 +33,17 @@ jobs:
       matrix:
         include:
           - host: linux
-            os: ubuntu-latest
+            os: blacksmith-4vcpu-ubuntu-2404
             target: x86_64-unknown-linux-gnu
             label: linux-x86_64
 
           - host: windows
-            os: windows-latest
+            os: blacksmith-4vcpu-windows-2025
             target: x86_64-pc-windows-msvc
             label: windows-x86_64
 
           - host: macos
-            os: macos-latest
+            os: blacksmith-4vcpu-macos-tahoe
             target: aarch64-apple-darwin
             label: macos-aarch64
 
