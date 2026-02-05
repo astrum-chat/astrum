@@ -81,7 +81,7 @@ jobs:
             ${{ matrix.os }}-cargo-
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.92.0
           targets: ${{ matrix.target }}
