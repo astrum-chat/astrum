@@ -19,10 +19,10 @@ jobs:
             min_version: "26.0"
             artifact: Astrum-macos-tahoe.dmg
 
-          - runner: macos-13
-            label: BigSur
-            min_version: "11.0"
-            artifact: Astrum-macos-bigsur.dmg
+          - runner: macos-15
+            label: Sequoia
+            min_version: "15.0"
+            artifact: Astrum-macos-sequoia.dmg
 
     permissions:
       contents: write
