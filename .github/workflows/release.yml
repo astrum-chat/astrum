@@ -45,7 +45,7 @@ jobs:
             feature: windows
 
           - host: macos
-            os: macos-latest
+            os: macos-26
             target: aarch64-apple-darwin
             label: macos-aarch64
             feature: macos
