@@ -5,13 +5,8 @@
 <h1 align="center">Astrum</h1>
 
 <p align="center">
-  A local-first AI chat application
+    A simple, private, cross-platform desktop app for chatting with AI. All of your conversations stay on your device.
 </p>
-
-## About
-
-A simple, private, cross-platform desktop app for chatting with AI. All of your conversations stay on your device.
-
 
 <p align="center">
   <img src="assets/readme/demo.png" alt="Astrum Demo" width="600">
@@ -21,14 +16,19 @@ A simple, private, cross-platform desktop app for chatting with AI. All of your 
 
 ## Installation
 
+Download the latest release for your platform from the [releases page](releases/latest).
+
+<details>
+<summary><strong>Build from source</strong></summary>
+
 ### Prerequisites
 
 - Rust toolchain (1.75+)
 
-### Build from Source
+### Build
 
 ```bash
-git clone https://github.com/your-username/astrum.git
+git clone https://github.com/astrum-chat/astrum.git
 cd astrum
 cargo build --release
 ```
@@ -38,3 +38,5 @@ cargo build --release
 ```bash
 cargo run --release
 ```
+
+</details>
