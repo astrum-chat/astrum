@@ -143,7 +143,7 @@ jobs:
         if: matrix.host == 'linux'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} target/${{ matrix.target }}/release/bundle/appimage/astrum.AppImage --clobber
+        run: gh release upload ${{ github.ref_name }} target/${{ matrix.target }}/release/bundle/appimage/astrum_0.0.0_x86_64.AppImage --clobber
 
       - name: Upload Windows artifact
         if: matrix.host == 'windows'
