@@ -14,6 +14,8 @@
   <img src="assets/readme/demo.png" alt="Astrum Demo" width="600">
 </p>
 
+- - -
+
 ## Installation
 
 Download the latest release for your platform from the [releases page](https://github.com/astrum-chat/astrum/releases/latest).
