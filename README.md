@@ -10,14 +10,8 @@
 
 ## About
 
-> It's still a bit rough around the edges and is still missing some features such as: thinking, web search and markdown.
+A simple, private, cross-platform desktop app for chatting with AI. All of your conversations stay on your device.
 
-## Features
-
-- **Multi-Provider Support** — Connect to OpenAI, Anthropic, or Ollama.
-- **Local-First** — All conversations persist in a local SQLite database.
-
-- - -
 
 <p align="center">
   <img src="assets/readme/demo.png" alt="Astrum Demo" width="600">
