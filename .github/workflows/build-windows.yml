@@ -1,9 +1,7 @@
 name: Build Windows
 
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,13 +10,18 @@ jobs:
   build:
     name: Build (Windows x86_64)
     runs-on: windows-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
-          ref: ${{ github.event.workflow_run.head_branch }}
+          toolchain: 1.92.0
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
 
       - name: Restore Rust Cache
         uses: actions/cache/restore@v4
@@ -31,13 +34,8 @@ jobs:
           restore-keys: |
             windows-cargo-
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92.0
-
       - name: Build
-        run: cargo build --release --target x86_64-pc-windows-msvc --features windows
+        run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Save Rust Cache
         uses: actions/cache/save@v4
@@ -51,7 +49,4 @@ jobs:
       - name: Upload Windows artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $TAG = "${{ github.event.workflow_run.head_branch }}"
-          gh release upload $TAG target/x86_64-pc-windows-msvc/release/astrum.exe --clobber
-        shell: pwsh
+        run: gh release upload ${{ github.ref_name }} target/x86_64-pc-windows-msvc/release/astrum.exe --clobber

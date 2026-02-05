@@ -1,9 +1,7 @@
 name: Build Linux
 
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -12,13 +10,10 @@ jobs:
   build:
     name: Build (Linux x86_64)
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_branch }}
 
       - name: Install dependencies
         run: |
@@ -37,6 +32,14 @@ jobs:
             libexpat1-dev \
             libdbus-1-dev
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
       - name: Restore Rust Cache
         uses: actions/cache/restore@v4
         with:
@@ -48,13 +51,8 @@ jobs:
           restore-keys: |
             linux-cargo-
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92.0
-
       - name: Build
-        run: cargo build --release --target x86_64-unknown-linux-gnu --features linux
+        run: cargo build --release --target x86_64-unknown-linux-gnu
 
       - name: Save Rust Cache
         uses: actions/cache/save@v4
@@ -95,6 +93,4 @@ jobs:
       - name: Upload Linux artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
-          gh release upload "$TAG" Astrum-linux-x86_64.AppImage --clobber
+        run: gh release upload ${{ github.ref_name }} Astrum-linux-x86_64.AppImage --clobber

@@ -1,24 +1,42 @@
 name: Build macOS
 
 on:
-  workflow_run:
-    workflows: ["Release"]
-    types: [completed]
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-    name: Build (macOS Universal)
-    runs-on: macos-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    name: Build (macOS ${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            label: Tahoe
+            min_version: "26.0"
+            artifact: Astrum-macos-tahoe.dmg
+
+          - runner: macos-13
+            label: BigSur
+            min_version: "11.0"
+            artifact: Astrum-macos-bigsur.dmg
+
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
         with:
-          ref: ${{ github.event.workflow_run.head_branch }}
+          toolchain: 1.92.0
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
 
       - name: Restore Rust Cache
         uses: actions/cache/restore@v4
@@ -27,21 +45,19 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-${{ matrix.label }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            macos-cargo-
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: 1.92.0
-          targets: x86_64-apple-darwin,aarch64-apple-darwin
+            macos-${{ matrix.label }}-cargo-
 
       - name: Build x86_64
-        run: cargo build --release --target x86_64-apple-darwin --features macos
+        run: cargo build --release --target x86_64-apple-darwin
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.min_version }}
 
       - name: Build aarch64
-        run: cargo build --release --target aarch64-apple-darwin --features macos
+        run: cargo build --release --target aarch64-apple-darwin
+        env:
+          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.min_version }}
 
       - name: Save Rust Cache
         uses: actions/cache/save@v4
@@ -50,7 +66,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: macos-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: macos-${{ matrix.label }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Create universal binary
         run: |
@@ -64,7 +80,7 @@ jobs:
           mkdir -p Astrum.app/Contents/Resources
           cp astrum Astrum.app/Contents/MacOS/
           cp assets/bundle/icons.icns Astrum.app/Contents/Resources/
-          cat > Astrum.app/Contents/Info.plist << 'EOF'
+          cat > Astrum.app/Contents/Info.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -81,6 +97,12 @@ jobs:
             <string>0.1.0</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSSupportsAutomaticGraphicsSwitching</key>
+            <true/>
+            <key>LSMinimumSystemVersion</key>
+            <string>${{ matrix.min_version }}</string>
           </dict>
           </plist>
           EOF
@@ -95,12 +117,10 @@ jobs:
             --icon-size 100 \
             --icon "Astrum.app" 150 190 \
             --app-drop-link 450 185 \
-            "Astrum-macos-universal.dmg" \
+            "${{ matrix.artifact }}" \
             "Astrum.app"
 
       - name: Upload macOS artifact
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
-          gh release upload "$TAG" Astrum-macos-universal.dmg --clobber
+        run: gh release upload ${{ github.ref_name }} "${{ matrix.artifact }}" --clobber

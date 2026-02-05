@@ -22,3 +22,21 @@ jobs:
           else
             gh release create ${{ github.ref_name }} --draft --verify-tag --title ${{ github.ref_name }}
           fi
+
+  build-macos:
+    needs: create-release
+    uses: ./.github/workflows/build-macos.yml
+    permissions:
+      contents: write
+
+  build-linux:
+    needs: create-release
+    uses: ./.github/workflows/build-linux.yml
+    permissions:
+      contents: write
+
+  build-windows:
+    needs: create-release
+    uses: ./.github/workflows/build-windows.yml
+    permissions:
+      contents: write
