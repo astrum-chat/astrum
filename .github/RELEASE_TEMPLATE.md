@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/readme/logo.svg" width="128" height="128" alt="Astrum Logo">
+  <img src="https://raw.githubusercontent.com/astrum-chat/astrum/main/assets/logo.svg" width="128" height="128" alt="Astrum Logo">
 </p>
 
-<h1 align="center">Astrum - vVERSION</h1>
+<h1 align="center">Astrum - VERSION</h1>
 
 ## What's New
 
