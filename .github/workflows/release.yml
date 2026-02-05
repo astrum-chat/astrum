@@ -54,10 +54,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Delete Cargo.lock to regenerate for target platform
-        run: rm -f Cargo.lock
-        shell: bash
-
       - name: Install Linux dependencies
         if: matrix.host == 'linux'
         run: |
