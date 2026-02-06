@@ -18,6 +18,15 @@ jobs:
             exit 1
           fi
 
+      - name: Check Cargo.toml version matches tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          CARGO_VERSION="v$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          if [ "$CARGO_VERSION" != "$TAG" ]; then
+            echo "::error::Cargo.toml version ($CARGO_VERSION) does not match tag ($TAG). Update the version in Cargo.toml before releasing."
+            exit 1
+          fi
+
   create-release:
     name: Create Release
     needs: preflight
