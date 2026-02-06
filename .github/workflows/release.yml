@@ -38,8 +38,8 @@ jobs:
               exit 1
             fi
 
-            # Increase heading levels by 2 (# -> ###, ## -> ####)
-            CHANGELOG=$(printf '%s' "$CHANGELOG" | sed 's/^#/###/')
+            # Increase heading levels by 1 (# -> ##, ## -> ###)
+            CHANGELOG=$(printf '%s' "$CHANGELOG" | sed 's/^#/##/')
 
             # Build release body from template
             BODY=$(sed "s/VERSION/$TAG/g" .github/RELEASE_TEMPLATE.md)
