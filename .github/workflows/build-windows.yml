@@ -9,7 +9,7 @@ env:
 jobs:
   build:
     name: Build (Windows x86_64)
-    runs-on: blacksmith-4vcpu-windows-2025
+    runs-on: blacksmith-2vcpu-windows-2025
     permissions:
       contents: write
     steps:
