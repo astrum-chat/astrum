@@ -49,13 +49,11 @@ jobs:
           restore-keys: |
             macos-${{ matrix.label }}-cargo-
 
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-apple-darwin
-        env:
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.min_version }}
-
-      - name: Build aarch64
-        run: cargo build --release --target aarch64-apple-darwin
+      - name: Build x86_64 and aarch64
+        run: |
+          cargo build --release --target x86_64-apple-darwin &
+          cargo build --release --target aarch64-apple-darwin &
+          wait
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.min_version }}
 
