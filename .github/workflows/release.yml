@@ -5,11 +5,9 @@ on:
     tags: ["v*"]
 
 jobs:
-  create-release:
-    name: Create Release
+  preflight:
+    name: Preflight Checks
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -19,6 +17,15 @@ jobs:
             echo "::error::Cargo.toml contains external path dependencies. Switch them to git/registry deps before releasing."
             exit 1
           fi
+
+  create-release:
+    name: Create Release
+    needs: preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Create Release
         env:
