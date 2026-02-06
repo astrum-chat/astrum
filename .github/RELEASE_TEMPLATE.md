@@ -20,15 +20,15 @@
 ## Installation
 
 ### macOS
-1. Download the `.dmg` file for your architecture
-2. Open the `.dmg` and drag Astrum to your Applications folder
-3. On first launch, right-click and select "Open" to bypass Gatekeeper
+1. Download the `.dmg` file for your architecture.
+2. Open the `.dmg` and drag Astrum to your Applications folder.
+3. Run the `xattr -cr /Applications/Astrum.app` command in the terminal to unquarantine the app.
 
 ### Linux
-1. Download the `.AppImage` file
-2. Make it executable: `chmod +x astrum_linux_VERSION.AppImage`
-3. Run it: `./astrum_linux_VERSION.AppImage`
+1. Download the `.AppImage` file.
+2. Make it executable: `chmod +x astrum_linux_VERSION.AppImage`.
+3. Run it: `./astrum_linux_VERSION.AppImage`.
 
 ### Windows
-1. Download the `.exe` file
-2. Run the installer and follow the prompts
+1. Download the `.exe` file.
+2. Run it directly, no installation required.
