@@ -73,3 +73,15 @@ jobs:
     uses: ./.github/workflows/build-windows.yml
     permissions:
       contents: write
+
+  publish-release:
+    name: Publish Release
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false --repo ${{ github.repository }}
