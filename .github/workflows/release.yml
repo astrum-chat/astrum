@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check for external path dependencies
+        run: |
+          if grep -v '^\s*#' Cargo.toml | grep -qE 'path\s*=\s*"\.\.'; then
+            echo "::error::Cargo.toml contains external path dependencies. Switch them to git/registry deps before releasing."
+            exit 1
+          fi
+
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
