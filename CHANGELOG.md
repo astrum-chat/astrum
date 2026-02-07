@@ -4,7 +4,7 @@
 
 # v0.1.2
 ## Features
-- Added auto-update support via GitHub releases using `self_update`.
+- Added cross-platform auto-update support via GitHub releases (macOS, Linux, Windows).
 - Download button in sidebar re-checks for updates if 30+ minutes have passed since discovery.
 
 # v0.1.1
