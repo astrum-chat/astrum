@@ -78,10 +78,8 @@ fn main() {
                                     let _ = chat_view.update(cx, |chat_view: &mut ChatView, cx| {
                                         let _ = chat_view.managers.write_arc_blocking().init(cx);
 
-                                        // Prefetch models from all providers on startup
                                         prefetch_all_models(chat_view.managers.clone(), cx);
 
-                                        // Check for updates
                                         let http_client = cx.http_client();
                                         let available_update = chat_view
                                             .managers

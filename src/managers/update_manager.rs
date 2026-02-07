@@ -41,46 +41,37 @@ impl UpdateManager {
         available_update: Entity<Option<ReleaseInfo>>,
         cx: &mut App,
     ) {
-        let found_at = available_update.read(cx).as_ref().map(|info| info.found_at);
-
-        let is_stale = found_at
-            .map(|at| at.elapsed() >= CHECK_INTERVAL)
+        let is_stale = available_update
+            .read(cx)
+            .as_ref()
+            .map(|info| info.found_at.elapsed() >= CHECK_INTERVAL)
             .unwrap_or(true);
 
-        cx.spawn(async move |cx| {
+        cx.spawn(async move |mut cx| {
             if is_stale {
-                let result = Self::fetch_latest_release(&http_client).await;
-                match result {
-                    Ok(Some(info)) => {
-                        let _ = available_update.update(cx, |state, cx| {
-                            *state = Some(info);
-                            cx.notify();
-                        });
-                    }
+                match Self::fetch_latest_release(&http_client).await {
+                    Ok(Some(info)) => set_available_update(&available_update, Some(info), &mut cx),
                     _ => {
-                        let _ = available_update.update(cx, |state, cx| {
-                            *state = None;
-                            cx.notify();
-                        });
+                        set_available_update(&available_update, None, &mut cx);
                         return;
                     }
                 }
             }
 
             let _ = smol::unblock(|| {
-                self_update::backends::github::Update::configure()
+                let mut builder = self_update::backends::github::Update::configure();
+                builder
                     .repo_owner("astrum-chat")
                     .repo_name("astrum")
                     .bin_name("astrum")
-                    .bin_path_in_archive("astrum")
-                    .target("macos")
-                    .identifier(&detect_macos_label())
                     .current_version(env!("CARGO_PKG_VERSION"))
                     .no_confirm(true)
                     .show_output(false)
-                    .show_download_progress(false)
-                    .build()
-                    .and_then(|updater| updater.update())
+                    .show_download_progress(false);
+
+                configure_platform_target(&mut builder);
+
+                builder.build().and_then(|updater| updater.update())
             })
             .await;
         })
@@ -93,19 +84,14 @@ impl UpdateManager {
         initial_delay: bool,
         cx: &mut App,
     ) {
-        cx.spawn(async move |cx| {
+        cx.spawn(async move |mut cx| {
             if initial_delay {
                 smol::Timer::after(CHECK_INTERVAL).await;
             }
 
             loop {
-                let result = Self::fetch_latest_release(&http_client).await;
-
-                if let Ok(Some(info)) = result {
-                    let _ = available_update.update(cx, |state, cx| {
-                        *state = Some(info);
-                        cx.notify();
-                    });
+                if let Ok(Some(info)) = Self::fetch_latest_release(&http_client).await {
+                    set_available_update(&available_update, Some(info), &mut cx);
                     return;
                 }
 
@@ -154,10 +140,31 @@ impl UpdateManager {
     }
 }
 
-fn detect_macos_label() -> String {
-    if cfg!(HAS_LIQUID_GLASS_WINDOW) {
-        "tahoe".to_string()
-    } else {
-        "sequoia".to_string()
+fn set_available_update(
+    entity: &Entity<Option<ReleaseInfo>>,
+    value: Option<ReleaseInfo>,
+    cx: &mut gpui::AsyncApp,
+) {
+    let _ = entity.update(cx, |state, cx| {
+        *state = value;
+        cx.notify();
+    });
+}
+
+fn configure_platform_target(builder: &mut self_update::backends::github::UpdateBuilder) {
+    if cfg!(target_os = "macos") {
+        let macos_identifier = if cfg!(HAS_LIQUID_GLASS_WINDOW) {
+            "tahoe"
+        } else {
+            "sequoia"
+        };
+        builder
+            .target("macos")
+            .identifier(macos_identifier)
+            .bin_path_in_archive("astrum");
+    } else if cfg!(target_os = "linux") {
+        builder.target("linux");
+    } else if cfg!(target_os = "windows") {
+        builder.target("windows");
     }
 }
