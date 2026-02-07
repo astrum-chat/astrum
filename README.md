@@ -8,6 +8,8 @@
     A simple, private, cross-platform desktop app for chatting with AI. All of your conversations stay on your device.
 </p>
 
+> **Note:** Astrum is currently in alpha. Expect bugs, breaking changes, and missing features.
+
 <br>
 
 <p align="center">
