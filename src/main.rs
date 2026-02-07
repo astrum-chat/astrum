@@ -10,7 +10,11 @@ use gpui_tesserae::{
 use smol::lock::RwLock;
 use std::sync::Arc;
 
-use crate::{blocks::models_menu::prefetch_all_models, managers::Managers, views::SettingsView};
+use crate::{
+    blocks::models_menu::prefetch_all_models,
+    managers::{Managers, UpdateManager},
+    views::SettingsView,
+};
 
 mod assets;
 use assets::AstrumAssets;
@@ -76,6 +80,20 @@ fn main() {
 
                                         // Prefetch models from all providers on startup
                                         prefetch_all_models(chat_view.managers.clone(), cx);
+
+                                        // Check for updates
+                                        let http_client = cx.http_client();
+                                        let available_update = chat_view
+                                            .managers
+                                            .read_blocking()
+                                            .update
+                                            .available_update
+                                            .clone();
+                                        UpdateManager::check_for_updates(
+                                            http_client,
+                                            available_update,
+                                            cx,
+                                        );
                                     });
                                 })
                                 .detach();

@@ -96,7 +96,10 @@ impl RenderOnce for Sidebar {
             |_window, _cx| SearchState::new(),
         );
 
-        let chats = &self.managers.read_blocking().chats;
+        let managers = self.managers.read_blocking();
+        let available_update_entity = managers.update.available_update.clone();
+        let available_update = available_update_entity.read(cx).clone();
+        let chats = &managers.chats;
         let current_chat_id_state = chats.get_current_chat_id();
         let current_chat_id = current_chat_id_state.read(cx).as_ref();
 
@@ -230,7 +233,25 @@ impl RenderOnce for Sidebar {
                             window.dispatch_action(Box::new(OpenSettings), cx);
                         })
                     }),
-            );
+            )
+            .when(available_update.is_some(), |this| {
+                let available_update_entity = available_update_entity.clone();
+                this.child(
+                    Toggle::new(self.id.with_suffix("download_btn"))
+                        .variant(ToggleVariant::Constructive)
+                        .icon(AstrumIconKind::Download)
+                        .icon_size(px(18.))
+                        .p(px(9.))
+                        .on_click(move |_event, _window, cx| {
+                            let http_client = cx.http_client();
+                            crate::managers::UpdateManager::apply_update(
+                                http_client,
+                                available_update_entity.clone(),
+                                cx,
+                            );
+                        }),
+                )
+            });
 
         div()
             .id(self.id)

@@ -135,7 +135,15 @@ jobs:
           hdiutil convert temp.dmg -format UDZO -o "${{ matrix.artifact }}"
           rm temp.dmg
 
-      - name: Upload macOS artifact
+      - name: Create tar.gz for auto-update
+        run: |
+          LABEL_LOWER=$(echo "${{ matrix.label }}" | tr '[:upper:]' '[:lower:]')
+          tar -czf "astrum_macos_${LABEL_LOWER}+_universal_${{ github.ref_name }}.tar.gz" -C Astrum.app/Contents/MacOS astrum
+
+      - name: Upload macOS artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} "${{ matrix.artifact }}" --clobber
+        run: |
+          LABEL_LOWER=$(echo "${{ matrix.label }}" | tr '[:upper:]' '[:lower:]')
+          gh release upload ${{ github.ref_name }} "${{ matrix.artifact }}" --clobber
+          gh release upload ${{ github.ref_name }} "astrum_macos_${LABEL_LOWER}+_universal_${{ github.ref_name }}.tar.gz" --clobber

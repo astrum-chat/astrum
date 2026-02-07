@@ -19,11 +19,15 @@ pub use persistence_manager::*;
 mod settings_manager;
 pub use settings_manager::*;
 
+mod update_manager;
+pub use update_manager::*;
+
 pub struct Managers {
     pub models: ModelsManager,
     pub chats: ChatsManager,
     pub persistence: PersistenceManager,
     pub settings: SettingsManager,
+    pub update: UpdateManager,
 }
 
 impl Managers {
@@ -33,6 +37,7 @@ impl Managers {
             chats: ChatsManager::new(cx),
             persistence: PersistenceManager::new(),
             settings: SettingsManager::new(cx),
+            update: UpdateManager::new(cx),
         }
     }
 
