@@ -1,3 +1,7 @@
+# v0.1.3
+## Internal
+- Test release to verify auto-update functionality.
+
 # v0.1.2
 ## Features
 - Added auto-update support via GitHub releases using `self_update`.
