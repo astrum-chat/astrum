@@ -27,6 +27,14 @@ jobs:
             exit 1
           fi
 
+      - name: Check CHANGELOG.md has entry for this version
+        run: |
+          TAG="${{ github.ref_name }}"
+          if ! grep -q "^# $TAG" CHANGELOG.md; then
+            echo "::error::No changelog entry found for $TAG in CHANGELOG.md. Add a '# $TAG' section before releasing."
+            exit 1
+          fi
+
   create-release:
     name: Create Release
     needs: preflight

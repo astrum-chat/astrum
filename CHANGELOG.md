@@ -1,6 +1,3 @@
-# v0.1.3
-Test release for auto-update verification.
-
 # v0.1.2
 ## Features
 - Auto-update via GitHub releases with background downloads and one-click restart.

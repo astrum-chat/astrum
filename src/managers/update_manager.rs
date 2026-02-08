@@ -201,8 +201,22 @@ fn download_update_to_staging() -> anyhow::Result<()> {
     let release = updater.get_latest_release()?;
     let target = updater.target();
     let identifier = updater.identifier();
+    let update_ext = if cfg!(target_os = "windows") {
+        ".exe"
+    } else if cfg!(target_os = "macos") {
+        ".tar.gz"
+    } else {
+        ".AppImage"
+    };
     let asset = release
-        .asset_for(&target, identifier.as_deref())
+        .assets
+        .iter()
+        .find(|a| {
+            a.name.contains(&target)
+                && identifier.as_deref().map_or(true, |id| a.name.contains(id))
+                && a.name.ends_with(update_ext)
+        })
+        .cloned()
         .ok_or_else(|| anyhow::anyhow!("no asset found for target: {target}"))?;
 
     let updates = updates_dir();
