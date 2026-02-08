@@ -108,7 +108,7 @@ jobs:
       - name: Generate DMG background
         run: |
           pip install pillow
-          python -m tools.dmg_bg assets/bundle/dmg-background.png assets/app/fonts/geist_1.7.0/fonts
+          python -m tools.dmg_bg assets/bundle/dmg-background.png assets/bundle/fonts
 
       - name: Create DMG
         run: |

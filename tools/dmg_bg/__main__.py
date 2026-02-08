@@ -86,8 +86,8 @@ def generate_background(output_path: str, fonts_dir: str):
     img = Image.new('RGB', (600 * TOTAL_SCALE, 580 * TOTAL_SCALE), color=(17, 15, 21))
     draw = ImageDraw.Draw(img)
 
-    font = ImageFont.truetype(os.path.join(fonts_dir, 'Geist', 'ttf', 'Geist-Medium.ttf'), 14 * TOTAL_SCALE)
-    mono_font = ImageFont.truetype(os.path.join(fonts_dir, 'GeistMono', 'ttf', 'GeistMono-Regular.ttf'), 13 * TOTAL_SCALE)
+    font = ImageFont.truetype(os.path.join(fonts_dir, 'Geist.ttf'), 14 * TOTAL_SCALE)
+    mono_font = ImageFont.truetype(os.path.join(fonts_dir, 'GeistMono.ttf'), 13 * TOTAL_SCALE)
 
     text_color = (235, 232, 254)
     code_bg = (35, 32, 42)

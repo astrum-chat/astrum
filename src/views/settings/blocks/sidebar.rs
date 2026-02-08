@@ -8,6 +8,7 @@ use gpui_tesserae::{
     ElementIdExt,
     components::{Toggle, ToggleVariant},
     extensions::mouse_handleable::MouseHandleable,
+    theme::ThemeExt,
 };
 use smol::lock::RwLock;
 
@@ -60,6 +61,16 @@ impl RenderOnce for Sidebar {
                 )
             }));
 
+        let secondary_text_color = cx.get_theme().variants.active(cx).colors.text.secondary;
+        let caption_size = cx.get_theme().layout.text.default_font.sizes.caption;
+
+        let version_label = div().pl(px(14.)).pb(px(10.)).child(
+            div()
+                .text_size(caption_size)
+                .text_color(secondary_text_color)
+                .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
+        );
+
         div()
             .id(self.id)
             .tab_group()
@@ -69,7 +80,9 @@ impl RenderOnce for Sidebar {
             .h_full()
             .flex()
             .flex_col()
+            .justify_between()
             .child(top_section)
+            .child(version_label)
     }
 }
 

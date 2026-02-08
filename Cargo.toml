@@ -14,7 +14,7 @@ granular_btreemap = { path = "crates/granular_btreemap" }
 gpui = { version = "0.2.2", default-features = false }
 gpui_squircle = { git = "https://github.com/astrum-chat/gpui_squircle" }
 gpui_transitions = "0.1.5"
-rust-embed = "8.9.0"
+rust-embed = { version = "8.9.0", features = ["include-exclude"] }
 enum-assoc = "1.2.4"
 
 anyhttp = { version = "0.0.0", features = [ "stream" ] }

@@ -7,6 +7,9 @@ use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
 #[folder = "assets/app"]
+#[include = "icons/*"]
+#[include = "logos/*"]
+#[exclude = "*.DS_Store"]
 pub struct AstrumAssets;
 
 impl AssetProvider for AstrumAssets {

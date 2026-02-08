@@ -93,6 +93,8 @@ impl RenderOnce for ChatMessage {
             cx.notify();
         });
 
+        let font_family = cx.get_theme().layout.text.default_font.family[0].clone();
+
         let text_size = cx.get_theme().layout.text.default_font.sizes.heading_sm;
         let selection_color = cx
             .get_theme()
@@ -111,6 +113,7 @@ impl RenderOnce for ChatMessage {
                 .w_auto()
                 .max_w_full()
                 .word_wrap(true)
+                .font_family(font_family)
                 .text_size(text_size);
 
         match self.role {
