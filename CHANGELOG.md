@@ -1,11 +1,7 @@
-# v0.1.3
-## Internal
-- Test release to verify auto-update functionality.
-
 # v0.1.2
 ## Features
-- Added cross-platform auto-update support via GitHub releases (macOS, Linux, Windows).
-- Download button in sidebar re-checks for updates if 30+ minutes have passed since discovery.
+- Auto-update via GitHub releases with background downloads and one-click restart.
+- Cross-platform update support for macOS, Linux, and Windows.
 
 # v0.1.1
 ## Fixes
