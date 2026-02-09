@@ -246,7 +246,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
 
-        move |window, cx| {
+        move |_window, cx| {
             let managers_guard = managers.read_blocking();
             let is_streaming = *managers_guard.chats.is_streaming.read(cx);
 
@@ -280,11 +280,10 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     .text_size(text_heading_sm_size)
     .child_bottom(
         div()
-            .max_w_full()
+            .w_full()
             .flex()
-            .min_h_auto()
-            .justify_between()
             .flex_wrap()
+            .justify_between()
             .gap(px(7.))
             .child(chat_box_left_items)
             .child(chat_box_right_items),

@@ -1,5 +1,10 @@
-# v0.1.3
-Test release for auto-update verification.
+# Unreleased
+## Fixes
+- Fixed issue with text selections being sometimes slightly clipped on the right edge.
+- Fixed issue with text wrapping breaking when the text's bounds are resized quickly.
+- Text selection's width is now rounded to the nearest screen pixel which ensures it looks sharp.
+- Fixed issue with the chat input's text disappearing under specific conditions.
+- Fixed issues with selection corner radius logic.
 
 # v0.1.2
 ## Features
