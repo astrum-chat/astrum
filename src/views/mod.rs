@@ -1,5 +1,8 @@
 use gpui::{Pixels, px};
 
+mod base;
+pub use base::*;
+
 mod backdrop;
 pub use backdrop::*;
 

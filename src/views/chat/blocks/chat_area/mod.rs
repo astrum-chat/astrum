@@ -6,7 +6,7 @@ use gpui::{
     App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
     SharedString, Window, deferred, div, prelude::*, px, radians, relative,
 };
-use gpui_squircle::{SquircleStyled, squircle};
+
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement, TesseraeIconKind,
     components::{Button, Icon, Input, Toggle, ToggleVariant, select::SelectMenu},
@@ -42,58 +42,32 @@ impl ChatArea {
 
 impl RenderOnce for ChatArea {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
-        let secondary_bg_color = cx
-            .get_theme()
-            .variants
-            .active(cx)
-            .colors
-            .background
-            .secondary;
-
         div()
             .id(self.id.clone())
-            .tab_group()
-            .tab_index(1)
-            .tab_stop(false)
-            .flex_1()
-            .min_w_0()
             .h_full()
+            .w_full()
+            .max_w(px(800.))
             .flex()
-            .justify_center()
-            .child(
-                squircle()
-                    .absolute_expand()
-                    .rounded_tl(px(8.))
-                    .rounded_tr(px(8.))
-                    .bg(secondary_bg_color),
-            )
+            .flex_col()
+            .items_start()
+            .justify_between()
+            .map(|this| {
+                let managers = self.managers.read_blocking();
+                let current_chat = managers.chats.get_current_chat(cx);
+
+                match current_chat {
+                    Ok(Some(current_chat)) => {
+                        this.child(render_existing_chat(&self.id, &current_chat, cx))
+                    }
+                    _ => this.child(render_prompt_new_chat(window, cx)),
+                }
+            })
             .child(
                 div()
-                    .h_full()
                     .w_full()
-                    .max_w(px(800.))
-                    .flex()
-                    .flex_col()
-                    .items_start()
-                    .justify_between()
-                    .map(|this| {
-                        let managers = self.managers.read_blocking();
-                        let current_chat = managers.chats.get_current_chat(cx);
-
-                        match current_chat {
-                            Ok(Some(current_chat)) => {
-                                this.child(render_existing_chat(&self.id, &current_chat, cx))
-                            }
-                            _ => this.child(render_prompt_new_chat(window, cx)),
-                        }
-                    })
-                    .child(
-                        div()
-                            .w_full()
-                            .p(px(20.))
-                            .pt(px(0.))
-                            .child(chat_box(&self, window, cx)),
-                    ),
+                    .p(px(20.))
+                    .pt(px(0.))
+                    .child(chat_box(&self, window, cx)),
             )
     }
 }
