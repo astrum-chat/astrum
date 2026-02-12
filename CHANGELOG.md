@@ -1,3 +1,7 @@
+# v0.1.5
+## Fixes
+- Fixed minor issues with text selection.
+
 # v0.1.4
 ## Features
 - Interior corners of text selections now support corner rounding.
