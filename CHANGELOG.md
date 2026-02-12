@@ -1,3 +1,14 @@
+# v0.1.4
+## Features
+- Interior corners of text selections now support corner rounding.
+
+## Fixes
+- Scrolling an input is now slower and doesn't just near-instantly scroll to the end.
+
+## Fixes
+- Only text shows the IBeam cursor, instead of the entire bounds showing it.
+- Fixed broken position of the accent menu in the text input.
+
 # v0.1.3
 ## Fixes
 - Fixed issue with text selections sometimes being slightly clipped on the right edge.

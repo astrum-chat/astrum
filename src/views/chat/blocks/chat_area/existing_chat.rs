@@ -107,12 +107,12 @@ impl RenderOnce for ChatMessage {
 
         let selectable_content =
             SelectableText::new(self.id.with_suffix("content"), selectable_content_state)
+                .multiline()
+                .multiline_wrapped()
                 .selection_color(selection_color)
                 .selection_rounded(px(6.))
                 .selection_rounded_smoothing(1.)
-                .w_auto()
                 .max_w_full()
-                .word_wrap(true)
                 .font_family(font_family)
                 .text_size(text_size);
 
@@ -122,7 +122,7 @@ impl RenderOnce for ChatMessage {
 
                 right_align(
                     ChatBubble::new("chat_bubble")
-                        .child(selectable_content.text_color(secondary_text_color)),
+                        .child(selectable_content.w_auto().text_color(secondary_text_color)),
                 )
                 .into_any_element()
             }
@@ -130,6 +130,7 @@ impl RenderOnce for ChatMessage {
                 let primary_text_color = cx.get_theme().variants.active(cx).colors.text.primary;
 
                 selectable_content
+                    .w_full()
                     .text_color(primary_text_color)
                     .into_any_element()
             }

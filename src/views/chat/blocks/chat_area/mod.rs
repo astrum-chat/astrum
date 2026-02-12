@@ -213,9 +213,10 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         elem.id.with_suffix("chat_box"),
         chat_box_input_state.clone(),
     )
-    .line_clamp(12)
+    .multiline()
+    .multiline_clamp(12)
+    .multiline_wrapped()
     .submit_disabled(submit_disabled)
-    .word_wrap(true)
     .on_submit({
         let chat_box_input_state = chat_box_input_state.clone();
         let managers = elem.managers.clone();
