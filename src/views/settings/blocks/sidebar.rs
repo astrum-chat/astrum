@@ -64,10 +64,13 @@ impl RenderOnce for Sidebar {
         let secondary_text_color = cx.get_theme().variants.active(cx).colors.text.secondary;
         let caption_size = cx.get_theme().layout.text.default_font.sizes.caption;
 
+        let font_family = cx.get_theme().layout.text.default_font.family[0].clone();
+
         let version_label = div().pl(px(14.)).pb(px(10.)).child(
             div()
                 .text_size(caption_size)
                 .text_color(secondary_text_color)
+                .font_family(font_family)
                 .child(format!("v{}", env!("CARGO_PKG_VERSION"))),
         );
 
