@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use gpui::{
-    App, ElementId, Fill, InteractiveElement, IntoElement, Overflow, PointRefinement, RenderOnce,
-    div, prelude::*, px, relative,
+    App, ElementId, Entity, Fill, InteractiveElement, IntoElement, RenderOnce, div, prelude::*, px,
+    relative, uniform_list,
 };
 use gpui_tesserae::{
     ElementIdExt, PositionalParentElement,
@@ -83,6 +83,7 @@ impl RenderOnce for Sidebar {
             .colors
             .background
             .secondary;
+        let lg_size = cx.get_theme().layout.size.lg;
 
         let search_chats_input_state = window.use_keyed_state(
             self.id.with_suffix("state:search_chats"),
@@ -156,63 +157,73 @@ impl RenderOnce for Sidebar {
                     }),
             );
 
-        let threads_section = div()
-            .id(self.id.with_suffix("threads_section"))
-            .flex()
-            .flex_col()
-            .p(px(10.))
-            .gap(px(5.))
+        let visible_chats: Arc<[(UniqueId, Entity<String>)]> = chats
+            .chats_iter(cx)
+            .into_iter()
+            .flatten()
+            .filter(|chat| match &filtered_ids {
+                Some(ids) => ids.contains(&chat.chat_id),
+                None => true,
+            })
+            .map(|chat| (chat.chat_id.clone(), chat.title.clone()))
+            .collect::<Vec<_>>()
+            .into();
+
+        let threads_section = if visible_chats.is_empty() {
+            let message = if filtered_ids.is_some() {
+                "No threads matched this query."
+            } else {
+                "No threads exist yet."
+            };
+
+            div()
+                .w_full()
+                .h_full()
+                .px(px(10.))
+                .child(empty_state_text(message, window, cx))
+                .into_any_element()
+        } else {
+            let current_id = current_chat_id.cloned();
+            let current_chat_id_state = current_chat_id_state.clone();
+            let list_id = self.id.clone();
+
+            uniform_list(
+                self.id.with_suffix("threads_section"),
+                visible_chats.len(),
+                move |range, _window, cx| {
+                    range
+                        .map(|ix| {
+                            let (chat_id, title_entity) = &visible_chats[ix];
+                            let chat_title =
+                                title_entity.read(cx).replace("\n", " ").replace("  ", " ");
+                            let current_chat_id_state = current_chat_id_state.clone();
+                            let chat_id_owned = chat_id.clone();
+
+                            div().w_full().pb(px(5.)).child(
+                                Toggle::new(list_id.with_suffix(format!("thread_{}", chat_id)))
+                                    .text(chat_title)
+                                    .variant(ToggleVariant::Secondary)
+                                    .checked(current_id.as_ref() == Some(chat_id))
+                                    .icon(AstrumIconKind::Chat)
+                                    .on_click(move |_checked, _window, cx| {
+                                        current_chat_id_state.update(cx, |this, _cx| {
+                                            *this = Some(chat_id_owned.clone())
+                                        });
+                                    })
+                                    .justify_start(),
+                            )
+                        })
+                        .collect()
+                },
+            )
             .w_full()
             .h_full()
-            .map(|mut this| {
-                this.style().overflow = PointRefinement {
-                    x: None,
-                    y: Some(Overflow::Scroll),
-                };
-                this
-            })
-            .map(|this| {
-                let Some(iter) = chats.chats_iter(cx) else {
-                    return this.child(empty_state_text("No threads exist yet.", window, cx));
-                };
-
-                let all_chats: Vec<_> = iter.collect();
-                if all_chats.is_empty() {
-                    return this.child(empty_state_text("No threads exist yet.", window, cx));
-                }
-
-                let visible_chats: Vec<_> = match &filtered_ids {
-                    Some(ids) => all_chats
-                        .into_iter()
-                        .filter(|chat| ids.contains(&chat.chat_id))
-                        .collect(),
-                    None => all_chats,
-                };
-
-                if visible_chats.is_empty() {
-                    return this.child(empty_state_text(
-                        "No threads matched this query.",
-                        window,
-                        cx,
-                    ));
-                }
-
-                this.children(visible_chats.into_iter().map(|chat| {
-                    let current_chat_id_state = current_chat_id_state.clone();
-                    let chat_id = chat.chat_id.clone();
-
-                    Toggle::new(self.id.with_suffix(format!("thread_{}", chat_id)))
-                        .text(chat.title.read(cx).replace("\n", " ").replace("  ", " "))
-                        .variant(ToggleVariant::Secondary)
-                        .checked(current_chat_id == Some(&chat_id))
-                        .icon(AstrumIconKind::Chat)
-                        .on_click(move |_checked, _window, cx| {
-                            current_chat_id_state
-                                .update(cx, |this, _cx| *this = Some(chat_id.clone()));
-                        })
-                        .justify_start()
-                }))
-            });
+            .px(px(10.))
+            .pt(px(10.))
+            // All items have a bottom padding of 5px
+            .pb(px(5.))
+            .into_any_element()
+        };
 
         let bottom_section = div()
             .flex()

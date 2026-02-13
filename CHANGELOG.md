@@ -1,3 +1,7 @@
+# Unreleased
+## Features
+- The chats in the sidebar are now rendered in a virtual list.
+
 # v0.1.5
 ## Fixes
 - Fixed minor issues with text selection.
