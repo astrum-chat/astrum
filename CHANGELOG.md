@@ -1,4 +1,4 @@
-# Unreleased
+# v0.1.6
 ## Features
 - The chats in the sidebar are now rendered in a virtual list.
 
