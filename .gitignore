@@ -11,3 +11,19 @@ Cargo.lock
 # Generated DMG background image (created by tools/dmg_bg during CI build)
 assets/bundle/dmg-background.png
 __pycache__
+
+# IDEs
+.idea/       # JetBrains (CLion, IntelliJ, etc.)
+.vscode/
+.trae/
+.zed/
+*.swp        # Vim swap files
+*.swo        # Vim swap overflow files
+
+# AI agents
+.claude/
+.cursor/
+.aider/
+.copilot/
+.codex/
+.gemini/
