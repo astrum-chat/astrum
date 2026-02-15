@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use gpui::{
-    App, ElementId, Entity, Fill, InteractiveElement, IntoElement, RenderOnce, div, prelude::*, px,
+    App, ElementId, Fill, InteractiveElement, IntoElement, RenderOnce, div, prelude::*, px,
     relative, uniform_list,
 };
 use gpui_tesserae::{
@@ -11,10 +11,17 @@ use gpui_tesserae::{
     primitives::input::InputState,
     theme::ThemeExt,
 };
+use notitia::OrderKey;
+use notitia::prelude::*;
+use notitia_gpui::{DbEntity, WindowNotitiaExt};
 use smol::lock::RwLock;
 
 use crate::{
-    OpenSettings, PixelsExt, assets::AstrumIconKind, managers::Managers, managers::UniqueId,
+    OpenSettings, PixelsExt,
+    assets::AstrumIconKind,
+    managers::Managers,
+    managers::UniqueId,
+    schema::{AstrumDb, ChatRecord},
     utils::search::filter_by_relevance,
 };
 
@@ -50,30 +57,6 @@ impl Sidebar {
     }
 }
 
-fn collect_chat_data(chats: &crate::managers::ChatsManager, cx: &App) -> Vec<(UniqueId, String)> {
-    chats
-        .chats_iter(cx)
-        .map(|iter| {
-            iter.map(|chat| (chat.chat_id.clone(), chat.title.read(cx).clone()))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn compute_filtered_ids(chat_data: Vec<(UniqueId, String)>, query: &str) -> Option<Vec<UniqueId>> {
-    if query.is_empty() {
-        return None;
-    }
-
-    let ids: Vec<UniqueId> =
-        filter_by_relevance(chat_data.iter(), query, |(_id, title)| title.as_str())
-            .into_iter()
-            .map(|(id, _)| id.clone())
-            .collect();
-
-    Some(ids)
-}
-
 impl RenderOnce for Sidebar {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
         let secondary_bg_color = cx
@@ -100,8 +83,25 @@ impl RenderOnce for Sidebar {
         let managers = self.managers.read_blocking();
         let available_update = managers.update.available_update.read(cx).clone();
         let chats = &managers.chats;
+        let db_initialized = chats.db_initialized();
         let current_chat_id_state = chats.get_current_chat_id();
-        let current_chat_id = current_chat_id_state.read(cx).as_ref();
+        let current_chat_id = current_chat_id_state.read(cx).clone();
+
+        // Subscribe to the chat list via notitia (only if DB is ready)
+        let chat_list: Option<DbEntity<BTreeMap<OrderKey, (UniqueId, Option<String>)>>> =
+            if db_initialized {
+                let db = chats.db().clone();
+                Some(window.use_db_query(cx, |_window, _cx| {
+                    db.query(
+                        AstrumDb::CHATS
+                            .select((ChatRecord::ID, ChatRecord::TITLE))
+                            .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
+                            .fetch_all::<BTreeMap<_, _>>(),
+                    )
+                }))
+            } else {
+                None
+            };
 
         let current_query = search_chats_input_state.read(cx).value().to_string();
         let search_state_data = search_state.read(cx);
@@ -109,7 +109,22 @@ impl RenderOnce for Sidebar {
         if current_query != search_state_data.last_query {
             let new_query = current_query.clone();
             let search_state = search_state.clone();
-            let chat_data = collect_chat_data(chats, cx);
+
+            // Collect chat data from the subscription
+            let chat_data: Vec<(UniqueId, String)> = chat_list
+                .as_ref()
+                .and_then(|cl| cl.read(cx))
+                .map(|set| {
+                    set.values()
+                        .map(|(id, title): &(UniqueId, Option<String>)| {
+                            (
+                                id.clone(),
+                                title.clone().unwrap_or_else(|| "Untitled Chat".to_string()),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
 
             cx.spawn(async move |cx| {
                 let filtered_ids = compute_filtered_ids(chat_data, &new_query);
@@ -157,16 +172,27 @@ impl RenderOnce for Sidebar {
                     }),
             );
 
-        let visible_chats: Arc<[(UniqueId, Entity<String>)]> = chats
-            .chats_iter(cx)
-            .into_iter()
-            .flatten()
-            .filter(|chat| match &filtered_ids {
-                Some(ids) => ids.contains(&chat.chat_id),
-                None => true,
+        // Build the visible chats list from subscription data
+        let visible_chats: Arc<[(UniqueId, String)]> = chat_list
+            .as_ref()
+            .and_then(|cl| cl.read(cx))
+            .map(|set| {
+                set.values()
+                    .filter(
+                        |(id, _title): &&(UniqueId, Option<String>)| match &filtered_ids {
+                            Some(ids) => ids.contains(id),
+                            None => true,
+                        },
+                    )
+                    .map(|(id, title): &(UniqueId, Option<String>)| {
+                        (
+                            id.clone(),
+                            title.clone().unwrap_or_else(|| "Untitled Chat".to_string()),
+                        )
+                    })
+                    .collect::<Vec<_>>()
             })
-            .map(|chat| (chat.chat_id.clone(), chat.title.clone()))
-            .collect::<Vec<_>>()
+            .unwrap_or_default()
             .into();
 
         let threads_section = if visible_chats.is_empty() {
@@ -180,10 +206,11 @@ impl RenderOnce for Sidebar {
                 .w_full()
                 .h_full()
                 .px(px(10.))
+                .pt(px(10.))
                 .child(empty_state_text(message, window, cx))
                 .into_any_element()
         } else {
-            let current_id = current_chat_id.cloned();
+            let current_id = current_chat_id.clone();
             let current_chat_id_state = current_chat_id_state.clone();
             let list_id = self.id.clone();
 
@@ -193,9 +220,8 @@ impl RenderOnce for Sidebar {
                 move |range, _window, cx| {
                     range
                         .map(|ix| {
-                            let (chat_id, title_entity) = &visible_chats[ix];
-                            let chat_title =
-                                title_entity.read(cx).replace("\n", " ").replace("  ", " ");
+                            let (chat_id, title) = &visible_chats[ix];
+                            let chat_title = title.replace("\n", " ").replace("  ", " ");
                             let current_chat_id_state = current_chat_id_state.clone();
                             let chat_id_owned = chat_id.clone();
 
@@ -290,6 +316,20 @@ impl RenderOnce for Sidebar {
                     .child(bottom_section),
             )
     }
+}
+
+fn compute_filtered_ids(chat_data: Vec<(UniqueId, String)>, query: &str) -> Option<Vec<UniqueId>> {
+    if query.is_empty() {
+        return None;
+    }
+
+    let ids: Vec<UniqueId> =
+        filter_by_relevance(chat_data.iter(), query, |(_id, title)| title.as_str())
+            .into_iter()
+            .map(|(id, _)| id.clone())
+            .collect();
+
+    Some(ids)
 }
 
 fn divider(color: impl Into<Fill>) -> impl IntoElement {

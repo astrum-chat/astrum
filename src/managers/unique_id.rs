@@ -1,12 +1,11 @@
 use std::fmt::Display;
 
-use rusqlite::{
-    ToSql,
-    types::{FromSql, FromSqlError, ToSqlOutput, ValueRef},
+use notitia::{
+    AsDatatypeKind, Datatype, DatatypeConversionError, DatatypeKind, DatatypeKindMetadata,
 };
 
-#[derive(Hash, PartialEq, Eq, Clone, Debug)]
-pub struct UniqueId(String);
+#[derive(Hash, PartialEq, Eq, Clone, Debug, Default)]
+pub struct UniqueId(pub(crate) String);
 
 impl UniqueId {
     pub(crate) fn new() -> Self {
@@ -30,19 +29,22 @@ impl Display for UniqueId {
     }
 }
 
-impl ToSql for UniqueId {
-    fn to_sql(&'_ self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        Ok(self.0.to_string().into())
+impl AsDatatypeKind for UniqueId {
+    fn as_datatype_kind() -> DatatypeKind {
+        DatatypeKind::Text(DatatypeKindMetadata::default())
     }
 }
 
-impl FromSql for UniqueId {
-    fn column_result(value: ValueRef<'_>) -> Result<Self, FromSqlError> {
-        match value {
-            ValueRef::Text(text) => Ok(UniqueId(
-                String::from_utf8(text.to_vec()).map_err(|_| FromSqlError::InvalidType)?,
-            )),
-            _ => Err(FromSqlError::InvalidType),
-        }
+impl Into<Datatype> for UniqueId {
+    fn into(self) -> Datatype {
+        Datatype::Text(self.0)
+    }
+}
+
+impl TryFrom<Datatype> for UniqueId {
+    type Error = DatatypeConversionError;
+
+    fn try_from(d: Datatype) -> Result<Self, Self::Error> {
+        String::try_from(d).map(UniqueId)
     }
 }

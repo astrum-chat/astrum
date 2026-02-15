@@ -1,3 +1,10 @@
+# Unreleased
+## Features
+- Internally migrated to Notitia - syncs db to gpui state.
+
+## Fixes
+- Fixed selection of single-line inputs.
+
 # v0.1.6
 ## Features
 - The chats in the sidebar are now rendered in a virtual list.

@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-pub struct GranularBTreeMap<K, V, O>
+pub struct OrderedMap<K, V, O>
 where
     K: Eq + Hash,
     O: Ord,
@@ -13,7 +13,7 @@ where
     pub order_map: BTreeMap<Rc<O>, Rc<V>>,
 }
 
-impl<K, V, O> Default for GranularBTreeMap<K, V, O>
+impl<K, V, O> Default for OrderedMap<K, V, O>
 where
     K: Eq + Hash,
     O: Ord,
@@ -23,7 +23,7 @@ where
     }
 }
 
-impl<K, V, O> GranularBTreeMap<K, V, O>
+impl<K, V, O> OrderedMap<K, V, O>
 where
     K: Eq + Hash,
     O: Ord,

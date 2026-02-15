@@ -1,37 +1,118 @@
-use std::{cmp::Reverse, sync::Arc};
+use std::collections::HashMap;
 
-use chrono::NaiveDateTime;
+use anyml::MessageRole;
 use futures::future::AbortHandle;
 use gpui::{App, AppContext, Entity};
-use granular_btreemap::GranularBTreeMap;
-use rusqlite::Connection;
+use notitia::Notitia;
+use notitia_sqlite::SqliteAdapter;
+use smol::channel::Sender;
 
-use crate::managers::{DbError, UniqueId};
+use crate::managers::UniqueId;
+use crate::schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord};
 
-mod chat;
-pub use chat::*;
-
-type ChatsMap = GranularBTreeMap<UniqueId, Entity<Chat>, Reverse<NaiveDateTime>>;
+/// A queued mutation to be executed sequentially per message.
+enum MessageMutation {
+    AppendContent { chunk: String },
+    SetTitle { title: String },
+}
 
 pub struct ChatsManager {
-    db_connection: Option<Arc<Connection>>,
-    chats: Entity<Option<ChatsMap>>,
+    db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     current_chat_id: Entity<Option<UniqueId>>,
     /// Tracks whether a response is currently being streamed
     pub is_streaming: Entity<bool>,
     /// Handle to abort the current streaming task
     pub streaming_abort_handle: Entity<Option<AbortHandle>>,
+    /// Per-entity mutation queues keyed by the entity ID (message or chat).
+    /// Each queue has its own consumer task for sequential execution.
+    mutation_queues: HashMap<UniqueId, Sender<MessageMutation>>,
 }
 
-impl<'a> ChatsManager {
+impl ChatsManager {
     pub fn new(cx: &mut App) -> Self {
         Self {
-            db_connection: None,
-            chats: cx.new(|_cx| None),
+            db: None,
             current_chat_id: cx.new(|_cx| None),
             is_streaming: cx.new(|_cx| false),
             streaming_abort_handle: cx.new(|_cx| None),
+            mutation_queues: HashMap::new(),
         }
+    }
+
+    pub fn init(&mut self, _cx: &mut App, db: Notitia<AstrumDb, SqliteAdapter>) {
+        self.db = Some(db);
+    }
+
+    /// Get or create a per-message mutation queue. Each queue has its own
+    /// consumer task so different messages can be mutated concurrently while
+    /// mutations on the same message are executed sequentially.
+    fn queue_for(&mut self, id: &UniqueId, cx: &mut App) -> &Sender<MessageMutation> {
+        let db = self.db().clone();
+        let id_clone = id.clone();
+        self.mutation_queues.entry(id.clone()).or_insert_with(|| {
+            let (tx, rx) = smol::channel::unbounded::<MessageMutation>();
+            cx.spawn(async move |_cx| {
+                while let Ok(task) = rx.recv().await {
+                    match task {
+                        MessageMutation::AppendContent { chunk } => {
+                            db.mutate(
+                                AstrumDb::MESSAGES
+                                    .update(
+                                        MessageRecord::build()
+                                            .content(MessageRecord::CONTENT.concat(chunk))
+                                            .edited_at(DbDateTime::now()),
+                                    )
+                                    .filter(MessageRecord::ID.eq(id_clone.clone())),
+                            )
+                            .execute()
+                            .await
+                            .unwrap();
+                        }
+                        MessageMutation::SetTitle { title } => {
+                            db.mutate(
+                                AstrumDb::CHATS
+                                    .update(
+                                        ChatRecord::build()
+                                            .title(title)
+                                            .edited_at(DbDateTime::now()),
+                                    )
+                                    .filter(ChatRecord::ID.eq(id_clone.clone())),
+                            )
+                            .execute()
+                            .await
+                            .unwrap();
+                        }
+                    }
+                }
+            })
+            .detach();
+            tx
+        })
+    }
+
+    /// Drop a mutation queue once streaming for a message is done.
+    /// The consumer task will exit naturally when the sender is dropped.
+    pub fn drop_mutation_queue(&mut self, id: &UniqueId) {
+        self.mutation_queues.remove(id);
+    }
+
+    pub fn db(&self) -> &Notitia<AstrumDb, SqliteAdapter> {
+        self.db.as_ref().expect("ChatsManager not initialized")
+    }
+
+    pub fn db_initialized(&self) -> bool {
+        self.db.is_some()
+    }
+
+    pub fn get_current_chat_id(&self) -> &Entity<Option<UniqueId>> {
+        &self.current_chat_id
+    }
+
+    pub fn set_current_chat(&self, cx: &mut App, chat_id: UniqueId) {
+        self.current_chat_id.update(cx, |current_chat_id, cx| {
+            *current_chat_id = Some(chat_id);
+            cx.notify();
+        });
     }
 
     pub fn set_streaming(&self, cx: &mut App, streaming: bool) {
@@ -56,170 +137,92 @@ impl<'a> ChatsManager {
         self.set_streaming(cx, false);
     }
 
-    pub fn init(
+    /// Create a new chat. Returns the chat_id immediately.
+    /// The DB insert happens asynchronously; the subscription will pick it up.
+    pub fn create_chat(&self, cx: &mut App) -> UniqueId {
+        let chat_id = UniqueId::new();
+        let now = DbDateTime::now();
+        let db = self.db().clone();
+        let chat_id_clone = chat_id.clone();
+        smol::block_on(async {
+            db.mutate(
+                AstrumDb::CHATS.insert(
+                    ChatRecord::build()
+                        .id(chat_id_clone)
+                        .title("Untitled Chat")
+                        .created_at(now.clone())
+                        .edited_at(now),
+                ),
+            )
+            .execute()
+            .await
+            .unwrap();
+        });
+        chat_id
+    }
+
+    /// Push a message to a chat. Blocks until the insert completes.
+    /// Also bumps the chat's edited_at.
+    pub fn push_message(
+        &self,
+        chat_id: &UniqueId,
+        content: impl Into<String>,
+        role: MessageRole,
+    ) -> UniqueId {
+        let msg_id = UniqueId::new();
+        let now = DbDateTime::now();
+        let db = self.db().clone();
+        let chat_id = chat_id.clone();
+        let content = content.into();
+        let msg_id_clone = msg_id.clone();
+        smol::block_on(async {
+            db.mutate(
+                AstrumDb::MESSAGES.insert(
+                    MessageRecord::build()
+                        .id(msg_id_clone)
+                        .chat_id(chat_id.clone())
+                        .role(role.as_str())
+                        .content(content)
+                        .created_at(now.clone())
+                        .edited_at(now.clone()),
+                ),
+            )
+            .execute()
+            .await
+            .unwrap();
+            // Bump chat's edited_at
+            db.mutate(
+                AstrumDb::CHATS
+                    .update(ChatRecord::build().edited_at(now))
+                    .filter(ChatRecord::ID.eq(chat_id)),
+            )
+            .execute()
+            .await
+            .unwrap();
+        });
+        msg_id
+    }
+
+    /// Append content to a message (for streaming).
+    /// Queued for sequential execution to preserve chunk order.
+    pub fn push_message_content(
         &mut self,
         cx: &mut App,
-        db_connection: Arc<rusqlite::Connection>,
-    ) -> Result<(), DbError> {
-        self.db_connection = Some(db_connection.clone());
-
-        db_connection
-            .execute_batch(
-                "
-                PRAGMA foreign_keys = ON;
-
-                CREATE TABLE IF NOT EXISTS chats (
-                    id         TEXT PRIMARY KEY,
-                    title      TEXT,
-                    created_at DATETIME NOT NULL,
-                    edited_at  DATETIME NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS messages (
-                    id         TEXT PRIMARY KEY,
-                    chat_id    TEXT NOT NULL,
-
-                    role       TEXT NOT NULL
-                        CHECK (role IN ('system', 'user', 'assistant')),
-
-                    content    TEXT NOT NULL,
-                    created_at DATETIME NOT NULL,
-                    edited_at  DATETIME NOT NULL,
-
-                    FOREIGN KEY (chat_id)
-                        REFERENCES chats(id)
-                        ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_messages_chat
-                    ON messages(chat_id, created_at);
-                ",
-            )
-            .unwrap();
-
-        let raw_chats = self.load_chats_from_db(cx)?;
-
-        let mut new_chats = GranularBTreeMap::new();
-        for raw_chat in raw_chats {
-            let edited_at = raw_chat.edited_at.clone();
-
-            new_chats.insert(
-                raw_chat.chat_id.clone(),
-                cx.new(|_cx| raw_chat),
-                Reverse(edited_at),
-            );
-        }
-
-        self.chats.update(cx, |chats, _cx| {
-            *chats = Some(new_chats);
-        });
-
-        Ok(())
-    }
-
-    pub fn get_current_chat_id(&self) -> &Entity<Option<UniqueId>> {
-        &self.current_chat_id
-    }
-
-    pub fn set_current_chat(&self, cx: &mut App, chat_id: UniqueId) {
-        self.current_chat_id.update(cx, |current_chat_id, cx| {
-            *current_chat_id = Some(chat_id);
-            cx.notify();
+        message_id: &UniqueId,
+        chunk: impl Into<String>,
+    ) {
+        let queue = self.queue_for(message_id, cx);
+        let _ = queue.send_blocking(MessageMutation::AppendContent {
+            chunk: chunk.into(),
         });
     }
 
-    pub fn get_current_chat(&'a self, cx: &'a mut App) -> Result<Option<Entity<Chat>>, DbError> {
-        let db_connection = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("database connection"))?;
-
-        let Some(current_chat_id) = self.current_chat_id.read(cx).as_ref().cloned() else {
-            return Ok(None);
-        };
-
-        self.chats.update(cx, |chats, cx| {
-            let chats = chats
-                .as_mut()
-                .ok_or_else(|| DbError::MissingData("chats"))?;
-
-            match chats.get(&current_chat_id) {
-                Some(chat) => Ok(Some(chat.clone())),
-                None => {
-                    let chat = Chat::load_from_db(
-                        cx,
-                        db_connection.clone(),
-                        current_chat_id.clone(),
-                        self.chats.clone(),
-                    )
-                    .map_err(|err| DbError::SqliteError(err))?;
-
-                    let edited_at = chat.edited_at.clone();
-
-                    let chat = cx.new(|_cx| chat);
-                    chats.insert(current_chat_id, chat.clone(), Reverse(edited_at));
-                    Ok(Some(chat))
-                }
-            }
-        })
-    }
-
-    pub fn create_chat(&self, cx: &mut App) -> Result<Entity<Chat>, DbError> {
-        let db_connection = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("database connection"))?;
-
-        let chat = Chat::new(cx, db_connection.clone(), self.chats.clone())
-            .map_err(|err| DbError::SqliteError(err))?;
-        let chat_id = chat.chat_id.clone();
-        let edited_at = chat.edited_at.clone();
-        let chat = cx.new(|_cx| chat);
-
-        self.chats.update(cx, |chats, cx| {
-            let chats = chats.get_or_insert_default();
-            chats.insert(chat_id, chat.clone(), Reverse(edited_at));
-            cx.notify();
+    /// Set the title of a chat.
+    /// Queued for sequential execution.
+    pub fn set_title(&mut self, cx: &mut App, chat_id: &UniqueId, title: impl Into<String>) {
+        let queue = self.queue_for(chat_id, cx);
+        let _ = queue.send_blocking(MessageMutation::SetTitle {
+            title: title.into(),
         });
-
-        Ok(chat)
-    }
-
-    pub fn chats_iter(&'a self, cx: &'a App) -> Option<impl Iterator<Item = &'a Chat>> {
-        self.chats
-            .read(cx)
-            .as_ref()
-            .map(|chats| chats.values().map(|chat| chat.read(cx)))
-    }
-
-    fn load_chats_from_db(&'a self, cx: &mut App) -> Result<Box<[Chat]>, DbError> {
-        let db_connection = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("database connection"))?
-            .clone();
-
-        let mut stmt = db_connection
-            .prepare(
-                r#"
-                SELECT
-                    id
-                FROM chats
-                ORDER BY edited_at ASC
-                "#,
-            )
-            .map_err(|err| DbError::SqliteError(err))?;
-
-        stmt.query_map([], |row| {
-            Chat::load_from_db(
-                cx,
-                db_connection.clone(),
-                UniqueId::from_string(row.get::<_, String>(0)?),
-                self.chats.clone(),
-            )
-        })
-        .map_err(|err| DbError::SqliteError(err))?
-        .collect::<rusqlite::Result<Box<[Chat]>>>()
-        .map_err(|err| DbError::SqliteError(err))
     }
 }

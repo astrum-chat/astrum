@@ -3,8 +3,8 @@ use std::sync::Arc;
 use anyml::{ChatOptions, MessageRole, models::Message};
 use futures::future::{AbortHandle, Abortable};
 use gpui::{
-    App, AppContext, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce,
-    SharedString, Window, deferred, div, prelude::*, px, radians, relative,
+    App, AsyncApp, ElementId, InteractiveElement, IntoElement, RenderOnce, SharedString, Window,
+    deferred, div, prelude::*, px, radians, relative,
 };
 
 use gpui_tesserae::{
@@ -14,10 +14,19 @@ use gpui_tesserae::{
     primitives::input::InputState,
     theme::{ThemeExt, ThemeLayerKind},
 };
+use notitia::OrderKey;
+use notitia::prelude::*;
+use notitia_gpui::{DbEntity, WindowNotitiaExt};
 use serde_json::value::RawValue;
 use smol::lock::RwLock;
 
-use crate::{Managers, assets::AstrumIconKind, blocks::ModelPicker, managers::ValuesOnly};
+use crate::{
+    Managers,
+    assets::AstrumIconKind,
+    blocks::ModelPicker,
+    managers::UniqueId,
+    schema::{AstrumDb, MessageRecord},
+};
 
 mod existing_chat;
 use existing_chat::render_existing_chat;
@@ -42,6 +51,10 @@ impl ChatArea {
 
 impl RenderOnce for ChatArea {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
+        let managers = self.managers.read_blocking();
+        let current_chat_id = managers.chats.get_current_chat_id().read(cx).clone();
+        let db_initialized = managers.chats.db_initialized();
+
         div()
             .id(self.id.clone())
             .h_full()
@@ -52,14 +65,45 @@ impl RenderOnce for ChatArea {
             .items_start()
             .justify_between()
             .map(|this| {
-                let managers = self.managers.read_blocking();
-                let current_chat = managers.chats.get_current_chat(cx);
+                if !db_initialized {
+                    return this.child(render_prompt_new_chat(window, cx));
+                }
 
-                match current_chat {
-                    Ok(Some(current_chat)) => {
-                        this.child(render_existing_chat(&self.id, &current_chat, cx))
+                match &current_chat_id {
+                    Some(chat_id) => {
+                        let db = managers.chats.db().clone();
+                        let chat_id_for_query = chat_id.clone();
+                        let messages: DbEntity<BTreeMap<OrderKey, (UniqueId, String, String)>> =
+                            window.use_keyed_db_query(
+                                format!("messages_{}", chat_id),
+                                cx,
+                                |_window, _cx| {
+                                    db.query(
+                                        AstrumDb::MESSAGES
+                                            .select((
+                                                MessageRecord::ID,
+                                                MessageRecord::ROLE,
+                                                MessageRecord::CONTENT,
+                                            ))
+                                            .filter(
+                                                MessageRecord::CHAT_ID
+                                                    .eq(chat_id_for_query.clone()),
+                                            )
+                                            .order_by(
+                                                MessageRecord::CREATED_AT,
+                                                OrderDirection::Asc,
+                                            )
+                                            .fetch_all::<BTreeMap<_, _>>(),
+                                    )
+                                },
+                            );
+
+                        match messages.read(cx) {
+                            Some(msgs) => this.child(render_existing_chat(&self.id, msgs)),
+                            None => this.child(div()), // spacer so justify_between keeps chat box at bottom
+                        }
                     }
-                    _ => this.child(render_prompt_new_chat(window, cx)),
+                    None => this.child(render_prompt_new_chat(window, cx)),
                 }
             })
             .child(
@@ -274,18 +318,17 @@ fn send_message(
     let current_provider = managers_guard.models.get_current_provider(cx).cloned()?;
     let current_model = managers_guard.models.get_current_model(cx).cloned()?;
 
-    let (current_chat, is_new_chat) = match managers_guard.chats.get_current_chat(cx) {
-        Ok(Some(current_chat)) => (current_chat, false),
-        Ok(None) => match managers_guard.chats.create_chat(cx) {
-            Ok(new_chat) => (new_chat, true),
-            _ => return None,
-        },
-        Err(_) => return None,
+    let current_chat_id = managers_guard.chats.get_current_chat_id().read(cx).clone();
+
+    let (chat_id, is_new_chat) = match current_chat_id {
+        Some(id) => (id, false),
+        None => {
+            let id = managers_guard.chats.create_chat(cx);
+            (id, true)
+        }
     };
 
-    managers_guard
-        .chats
-        .set_current_chat(cx, current_chat.read(cx).chat_id.clone());
+    managers_guard.chats.set_current_chat(cx, chat_id.clone());
 
     // Generate title for new chats if chat_titles_model is configured
     if is_new_chat {
@@ -294,7 +337,8 @@ fn send_message(
 
         if let (Some(provider), Some(model)) = (chat_titles_provider, chat_titles_model) {
             let user_message = contents.to_string();
-            let chat_for_title = current_chat.clone();
+            let managers_for_title = managers.clone();
+            let chat_id_for_title = chat_id.clone();
 
             cx.spawn(async move |cx: &mut AsyncApp| {
                 let prompt = format!(
@@ -313,49 +357,37 @@ fn send_message(
                     while let Some(Ok(chunk)) = response.next().await {
                         title.push_str(&chunk.content);
 
-                        // Stream the title update to the UI
+                        // Update the title in the DB (subscription will update sidebar)
                         let current_title = title.trim().to_string();
                         if !current_title.is_empty() {
-                            let _ = chat_for_title.update(cx, |chat, cx| {
-                                chat.title.update(cx, |t, cx| {
-                                    *t = current_title;
-                                    cx.notify();
-                                });
+                            let _ = cx.update(|cx| {
+                                let mut managers_guard = managers_for_title.write_blocking();
+                                managers_guard.chats.set_title(
+                                    cx,
+                                    &chat_id_for_title,
+                                    &current_title,
+                                );
                             });
                         }
                     }
-
-                    // Final update to persist to database
-                    let final_title = title.trim().to_string();
-                    if !final_title.is_empty() {
-                        let _ = chat_for_title.update(cx, |chat, cx| {
-                            let _ = chat.set_title(cx, final_title);
-                        });
-                    }
                 }
+                let _ = cx.update(|_cx| {
+                    let mut managers_guard = managers_for_title.write_blocking();
+                    managers_guard.chats.drop_mutation_queue(&chat_id_for_title);
+                });
             })
             .detach();
         }
     }
 
-    let msg_id = current_chat
-        .update(cx, |current_chat, cx| {
-            current_chat
-                .push_message(
-                    cx,
-                    &current_chat.chat_id.clone(),
-                    contents,
-                    MessageRole::User,
-                )
-                .unwrap();
-            current_chat.push_message(
-                cx,
-                &current_chat.chat_id.clone(),
-                "",
-                MessageRole::Assistant,
-            )
-        })
-        .ok()?;
+    // Push user message and empty assistant message
+    let _user_msg_id =
+        managers_guard
+            .chats
+            .push_message(&chat_id, contents.as_ref(), MessageRole::User);
+    let assistant_msg_id = managers_guard
+        .chats
+        .push_message(&chat_id, "", MessageRole::Assistant);
 
     // Set streaming state to true and create abort handle
     managers_guard.chats.set_streaming(cx, true);
@@ -364,6 +396,12 @@ fn send_message(
         .chats
         .set_abort_handle(cx, Some(abort_handle));
 
+    // We need to get the DB handle and build messages for the API call.
+    // Since messages are being inserted asynchronously, we need to wait for them
+    // to be committed before reading. We'll build the messages list from what we know.
+    let db = managers_guard.chats.db().clone();
+    let chat_id_for_stream = chat_id.clone();
+
     // Drop the read guard before spawning the async task
     drop(managers_guard);
 
@@ -371,36 +409,61 @@ fn send_message(
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         let streaming_future = async {
-            let Ok(messages) = cx.read_entity(&current_chat, move |current_chat, cx| {
-                serde_json::to_string(&ValuesOnly(&current_chat.read_messages(cx)))
-            }) else {
+            // Read messages from the database for the API call.
+            // We need to wait briefly for the insert to complete.
+            let messages_result = db
+                .query(
+                    AstrumDb::MESSAGES
+                        .select((MessageRecord::ROLE, MessageRecord::CONTENT))
+                        .filter(MessageRecord::CHAT_ID.eq(chat_id_for_stream.clone()))
+                        .order_by(MessageRecord::CREATED_AT, OrderDirection::Asc)
+                        .fetch_all::<BTreeMap<_, _>>(),
+                )
+                .execute()
+                .await;
+
+            let Ok(messages_data) = messages_result else {
                 return;
             };
 
-            let messages = unsafe {
-                std::mem::transmute::<Box<str>, Box<RawValue>>(messages.into_boxed_str())
+            let api_messages: Vec<Message> = messages_data
+                .values()
+                .filter(|(_, content): &&(String, String)| !content.is_empty())
+                .map(|(role, content)| Message {
+                    role: MessageRole::from_str(role),
+                    content: content.clone(),
+                })
+                .collect();
+
+            let messages_json = serde_json::to_string(&api_messages).unwrap();
+            let messages_raw = unsafe {
+                std::mem::transmute::<Box<str>, Box<RawValue>>(messages_json.into_boxed_str())
             };
 
-            let options = ChatOptions::new(&current_model).messages_serialized(messages);
+            let options = ChatOptions::new(&current_model).messages_serialized(messages_raw);
             let response = current_provider.inner.chat(&options).await;
 
             match response {
                 Ok(mut response) => {
                     while let Some(Ok(chunk)) = response.next().await {
-                        let _ = current_chat.update(cx, |current_chat, cx| {
-                            current_chat
-                                .push_message_content(cx, &msg_id, &chunk.content)
-                                .unwrap();
-                            cx.notify();
+                        let _ = cx.update(|cx| {
+                            let mut managers_guard = managers_for_cleanup.write_blocking();
+                            managers_guard.chats.push_message_content(
+                                cx,
+                                &assistant_msg_id,
+                                &chunk.content,
+                            );
                         });
                     }
                 }
                 Err(err) => {
-                    let _ = current_chat.update(cx, |current_chat, cx| {
-                        current_chat
-                            .push_message_content(cx, &msg_id, &format!("{}", err.to_string()))
-                            .unwrap();
-                        cx.notify();
+                    let _ = cx.update(|cx| {
+                        let mut managers_guard = managers_for_cleanup.write_blocking();
+                        managers_guard.chats.push_message_content(
+                            cx,
+                            &assistant_msg_id,
+                            &err.to_string(),
+                        );
                     });
                 }
             };
@@ -411,7 +474,8 @@ fn send_message(
 
         // Clean up streaming state when done (whether completed or aborted)
         let _ = cx.update(|cx| {
-            let managers_guard = managers_for_cleanup.read_blocking();
+            let mut managers_guard = managers_for_cleanup.write_blocking();
+            managers_guard.chats.drop_mutation_queue(&assistant_msg_id);
             managers_guard.chats.set_streaming(cx, false);
             managers_guard.chats.set_abort_handle(cx, None);
         });

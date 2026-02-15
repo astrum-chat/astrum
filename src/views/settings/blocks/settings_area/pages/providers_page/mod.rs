@@ -79,15 +79,13 @@ impl RenderOnce for ProvidersPage {
                 None,
             );
 
-            if let Ok(provider_id) = provider_id {
-                // Fetch models for the newly created provider
-                refetch_provider_models(
-                    managers.clone(),
-                    provider_id,
-                    ProviderConfigChange::Create,
-                    cx,
-                );
-            }
+            // Fetch models for the newly created provider
+            refetch_provider_models(
+                managers.clone(),
+                provider_id,
+                ProviderConfigChange::Create,
+                cx,
+            );
 
             state.hide_menu(cx);
         });

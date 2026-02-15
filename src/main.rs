@@ -1,5 +1,5 @@
 use gpui::{
-    App, Application, Bounds, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions,
+    App, Application, AsyncApp, Bounds, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions,
     WindowBounds, WindowOptions, actions, point, prelude::*, px, size,
 };
 use gpui_tesserae::{
@@ -7,12 +7,15 @@ use gpui_tesserae::{
     theme::{Theme, ThemeExt},
     views::Root,
 };
+use notitia::Database;
+use notitia_sqlite::SqliteAdapter;
 use smol::lock::RwLock;
 use std::sync::Arc;
 
 use crate::{
     blocks::models_menu::prefetch_all_models,
     managers::{Managers, UpdateManager},
+    schema::AstrumDb,
     views::SettingsView,
 };
 
@@ -33,6 +36,8 @@ mod utils;
 pub use utils::*;
 
 mod managers;
+
+pub mod schema;
 
 actions!(window, [TabNext, TabPrev, OpenSettings]);
 
@@ -74,25 +79,32 @@ fn main() {
                             let chat_view = cx.new(move |cx| {
                                 let chat_view = ChatView::new("chat_view", managers);
 
-                                cx.spawn(async |chat_view, cx| {
-                                    let _ = chat_view.update(cx, |chat_view: &mut ChatView, cx| {
-                                        let _ = chat_view.managers.write_arc_blocking().init(cx);
+                                cx.spawn({
+                                    let managers = chat_view.managers.clone();
+                                    let db_url = managers.read_blocking().db_url();
+                                    async move |_chat_view, cx: &mut AsyncApp| {
+                                        let db = AstrumDb::connect::<SqliteAdapter>(&db_url)
+                                            .await
+                                            .unwrap();
 
-                                        prefetch_all_models(chat_view.managers.clone(), cx);
+                                        let _ = cx.update(|cx| {
+                                            managers.write_arc_blocking().init_with_db(cx, db);
 
-                                        let http_client = cx.http_client();
-                                        let available_update = chat_view
-                                            .managers
-                                            .read_blocking()
-                                            .update
-                                            .available_update
-                                            .clone();
-                                        UpdateManager::check_for_updates(
-                                            http_client,
-                                            available_update,
-                                            cx,
-                                        );
-                                    });
+                                            prefetch_all_models(managers.clone(), cx);
+
+                                            let http_client = cx.http_client();
+                                            let available_update = managers
+                                                .read_blocking()
+                                                .update
+                                                .available_update
+                                                .clone();
+                                            UpdateManager::check_for_updates(
+                                                http_client,
+                                                available_update,
+                                                cx,
+                                            );
+                                        });
+                                    }
                                 })
                                 .detach();
 

@@ -1,7 +1,7 @@
 use anyml::MessageRole;
 use gpui::{
-    App, Div, ElementId, Entity, IntoElement, Overflow, PointRefinement, SharedString, Stateful,
-    Window, div, prelude::*, px,
+    App, Div, ElementId, IntoElement, Overflow, PointRefinement, SharedString, Stateful, Window,
+    div, prelude::*, px,
 };
 use gpui_tesserae::{
     ElementIdExt,
@@ -9,13 +9,14 @@ use gpui_tesserae::{
     primitives::selectable_text::{SelectableText, SelectableTextState},
     theme::ThemeExt,
 };
+use notitia::OrderKey;
+use std::collections::BTreeMap;
 
-use crate::{RgbaExt, managers::Chat};
+use crate::{RgbaExt, managers::UniqueId};
 
 pub fn render_existing_chat(
     base_id: &ElementId,
-    current_chat: &Entity<Chat>,
-    cx: &App,
+    messages: &BTreeMap<OrderKey, (UniqueId, String, String)>,
 ) -> Stateful<Div> {
     div()
         .id(base_id.with_suffix("existing_messages"))
@@ -36,7 +37,7 @@ pub fn render_existing_chat(
             };
             this
         })
-        .children(render_messages(&current_chat.read(cx), cx))
+        .children(render_messages(messages))
 }
 
 fn right_align(child: impl IntoElement) -> Div {
@@ -50,13 +51,11 @@ fn right_align(child: impl IntoElement) -> Div {
         .child(child)
 }
 
-fn render_messages<'a>(chat: &'a Chat, cx: &'a App) -> impl Iterator<Item = ChatMessage> + 'a {
-    chat.read_messages(cx).iter().map(|(id, message)| {
-        ChatMessage::new(
-            id.to_string(),
-            message.message.role.clone(),
-            &message.message.content,
-        )
+fn render_messages(
+    messages: &BTreeMap<OrderKey, (UniqueId, String, String)>,
+) -> impl Iterator<Item = ChatMessage> + '_ {
+    messages.values().map(|(id, role, content)| {
+        ChatMessage::new(id.to_string(), MessageRole::from_str(role), content)
     })
 }
 

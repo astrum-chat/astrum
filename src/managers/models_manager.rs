@@ -4,13 +4,11 @@ use anyml::{
     AnthropicProvider, OllamaProvider, OpenAiProvider,
     providers::{chat::ChatProvider, list_models::ListModelsProvider},
 };
-use chrono::Utc;
 use enum_assoc::Assoc;
 use gpui::{App, AppContext, Entity, SharedString};
-use rusqlite::{
-    ToSql,
-    types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, ValueRef},
-};
+use notitia::Notitia;
+use notitia::prelude::*;
+use notitia_sqlite::SqliteAdapter;
 use secrecy::{ExposeSecret, SecretString};
 
 pub trait ProviderTrait: ChatProvider + ListModelsProvider {}
@@ -20,7 +18,8 @@ use crate::{
     anyhttp_gpui::GpuiHttpWrapper,
     assets::AstrumLogoKind,
     blocks::models_menu::ModelsCache,
-    managers::{DbError, UniqueId},
+    managers::UniqueId,
+    schema::{AstrumDb, DbDateTime, ModelSelectionRecord, ProviderRecord},
     secrets::{get_secret, remove_secret, set_secret},
     utils::FrontInsertMap,
 };
@@ -32,7 +31,7 @@ pub struct ProviderModelPair {
 }
 
 pub struct ModelsManager {
-    db_connection: Option<Arc<rusqlite::Connection>>,
+    db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     pub current_model: ProviderModelPair,
     pub chat_titles_model: ProviderModelPair,
@@ -43,7 +42,7 @@ pub struct ModelsManager {
 impl<'a> ModelsManager {
     pub fn new(cx: &mut App) -> Self {
         Self {
-            db_connection: None,
+            db: None,
             providers: cx.new(move |_cx| FrontInsertMap::new()),
             current_model: ProviderModelPair {
                 provider_id: cx.new(|_cx| None),
@@ -59,40 +58,17 @@ impl<'a> ModelsManager {
         }
     }
 
-    pub fn init(&mut self, cx: &mut App, db_connection: Arc<rusqlite::Connection>) {
-        db_connection
-            .execute_batch(
-                "
-                PRAGMA foreign_keys = ON;
+    pub fn init(&mut self, cx: &mut App, db: Notitia<AstrumDb, SqliteAdapter>) {
+        self.db = Some(db);
 
-                CREATE TABLE IF NOT EXISTS providers (
-                    id         TEXT PRIMARY KEY,
-                    kind       TEXT NOT NULL
-                        CHECK (kind IN ('ollama', 'anthropic', 'openai')),
-                    name       TEXT NOT NULL,
-                    url        TEXT NOT NULL,
-                    icon       TEXT,
-                    created_at DATETIME NOT NULL,
-                    edited_at  DATETIME NOT NULL
-                );
+        // Load providers synchronously at startup by blocking on the async query.
+        // This is acceptable during init since nothing else is happening.
+        self.load_providers_from_db_sync(cx);
+        self.load_model_selections_from_db_sync(cx);
+    }
 
-                CREATE TABLE IF NOT EXISTS model_selections (
-                    key           TEXT PRIMARY KEY CHECK (key IN ('current', 'chat_titles')),
-                    provider_id   TEXT,
-                    provider_name TEXT,
-                    model         TEXT
-                );
-                ",
-            )
-            .unwrap();
-
-        let _ = self
-            .load_providers_from_db(cx, db_connection.clone())
-            .unwrap();
-
-        self.load_model_selections_from_db(cx, &db_connection);
-
-        self.db_connection = Some(db_connection);
+    fn db(&self) -> &Notitia<AstrumDb, SqliteAdapter> {
+        self.db.as_ref().expect("ModelsManager not initialized")
     }
 
     pub fn get_current_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
@@ -100,8 +76,7 @@ impl<'a> ModelsManager {
             .provider_id
             .read(cx)
             .as_ref()
-            .map(|this| self.providers.read(cx).get(this))
-            .flatten()
+            .and_then(|id| self.providers.read(cx).get(id))
     }
 
     pub fn set_current_provider(
@@ -126,73 +101,16 @@ impl<'a> ModelsManager {
             },
         );
         self.save_model_selection(
+            cx,
             "current",
-            Some(&provider_id),
-            Some(&provider_name),
-            self.current_model.model.read(cx).as_deref(),
+            Some(provider_id),
+            Some(provider_name),
+            self.current_model.model.read(cx).clone(),
         );
     }
 
-    pub fn get_provider(
-        &mut self,
-        cx: &mut App,
-        provider_id: &UniqueId,
-    ) -> Result<Arc<Provider>, DbError> {
-        let provider_id = provider_id.as_ref();
-
-        if let Some(provider) = self.providers.read(cx).get(provider_id) {
-            return Ok(provider.clone());
-        }
-
-        let db = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("db_connection"))?
-            .clone();
-
-        let mut stmt = db
-            .prepare(
-                r#"
-                    SELECT
-                        kind,
-                        name,
-                        url,
-                        icon
-                    FROM providers
-                    WHERE id = ?1
-                    "#,
-            )
-            .map_err(|err| DbError::SqliteError(err))?;
-
-        let (kind, name, url, icon) = stmt
-            .query_row([provider_id.to_string()], |row| {
-                Ok((
-                    row.get::<_, ProviderKind>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, Option<String>>(3)?,
-                ))
-            })
-            .map_err(|err| DbError::SqliteError(err))?;
-
-        let http_client = GpuiHttpWrapper::new(cx.http_client());
-
-        self.init_provider(
-            cx,
-            provider_id,
-            &kind,
-            name,
-            url,
-            icon.unwrap_or_else(|| kind.default_icon().to_string()),
-            http_client,
-        )
-        .ok_or_else(|| DbError::MissingData("provider"))?;
-
-        self.providers
-            .read(cx)
-            .get(provider_id)
-            .cloned()
-            .ok_or_else(|| DbError::MissingData("provider"))
+    pub fn get_provider(&self, cx: &App, provider_id: &UniqueId) -> Option<Arc<Provider>> {
+        self.providers.read(cx).get(provider_id).cloned()
     }
 
     pub fn new_provider(
@@ -203,41 +121,57 @@ impl<'a> ModelsManager {
         url: impl Into<String>,
         icon: Option<String>,
         api_key: Option<SecretString>,
-    ) -> Result<UniqueId, DbError> {
-        let db_connection = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("database connection"))?;
-
-        let created_at = Utc::now().naive_utc();
+    ) -> UniqueId {
         let provider_id = UniqueId::new();
-
         let name = name.into();
         let url = url.into();
 
-        db_connection.execute(
-            "INSERT INTO providers (id, kind, name, url, icon, created_at, edited_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-            (&provider_id, &kind, &name, &url, &icon, &created_at),
-        ).map_err(|err| DbError::SqliteError(err))?;
-
-        let http_client = GpuiHttpWrapper::new(cx.http_client());
-
+        // Save API key
         if let Some(api_key) = api_key {
             let secret_name = &Self::construct_provider_api_key_name(&provider_id, &name);
             let _ = set_secret(secret_name, api_key.expose_secret());
         }
 
+        // Insert into DB asynchronously
+        let db = self.db().clone();
+        let now = DbDateTime::now();
+        let provider_id_clone = provider_id.clone();
+        let kind_str = kind.as_str().to_string();
+        let name_clone = name.clone();
+        let url_clone = url.clone();
+        let icon_clone = icon.clone();
+        cx.spawn(async move |_cx| {
+            db.mutate(
+                AstrumDb::PROVIDERS.insert(
+                    ProviderRecord::build()
+                        .id(provider_id_clone)
+                        .kind(kind_str)
+                        .name(name_clone)
+                        .url(url_clone)
+                        .icon(icon_clone)
+                        .created_at(now.clone())
+                        .edited_at(now),
+                ),
+            )
+            .execute()
+            .await
+            .unwrap();
+        })
+        .detach();
+
+        // Initialize the runtime client immediately
+        let http_client = GpuiHttpWrapper::new(cx.http_client());
         self.init_provider(
             cx,
             &provider_id,
             &kind,
             name,
             url,
-            kind.default_icon().to_string(),
+            icon.unwrap_or_else(|| kind.default_icon().to_string()),
             http_client,
         );
 
-        Ok(provider_id)
+        provider_id
     }
 
     pub fn get_current_model(&'a self, cx: &'a App) -> Option<&'a String> {
@@ -251,10 +185,11 @@ impl<'a> ModelsManager {
             cx.notify();
         });
         self.save_model_selection(
+            cx,
             "current",
-            self.current_model.provider_id.read(cx).as_ref(),
-            self.current_model.provider_name.read(cx).as_deref(),
-            Some(&model_name),
+            self.current_model.provider_id.read(cx).clone(),
+            self.current_model.provider_name.read(cx).clone(),
+            Some(model_name),
         );
     }
 
@@ -271,7 +206,7 @@ impl<'a> ModelsManager {
             *model = None;
             cx.notify();
         });
-        self.save_model_selection("current", None, None, None);
+        self.save_model_selection(cx, "current", None, None, None);
     }
 
     pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
@@ -290,7 +225,7 @@ impl<'a> ModelsManager {
             *model = None;
             cx.notify();
         });
-        self.save_model_selection("chat_titles", None, None, None);
+        self.save_model_selection(cx, "chat_titles", None, None, None);
     }
 
     pub fn get_chat_titles_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
@@ -298,8 +233,7 @@ impl<'a> ModelsManager {
             .provider_id
             .read(cx)
             .as_ref()
-            .map(|this| self.providers.read(cx).get(this))
-            .flatten()
+            .and_then(|id| self.providers.read(cx).get(id))
     }
 
     pub fn set_chat_titles_provider(
@@ -324,10 +258,11 @@ impl<'a> ModelsManager {
             },
         );
         self.save_model_selection(
+            cx,
             "chat_titles",
-            Some(&provider_id),
-            Some(&provider_name),
-            self.chat_titles_model.model.read(cx).as_deref(),
+            Some(provider_id),
+            Some(provider_name),
+            self.chat_titles_model.model.read(cx).clone(),
         );
     }
 
@@ -342,55 +277,112 @@ impl<'a> ModelsManager {
             cx.notify();
         });
         self.save_model_selection(
+            cx,
             "chat_titles",
-            self.chat_titles_model.provider_id.read(cx).as_ref(),
-            self.chat_titles_model.provider_name.read(cx).as_deref(),
-            Some(&model_name),
+            self.chat_titles_model.provider_id.read(cx).clone(),
+            self.chat_titles_model.provider_name.read(cx).clone(),
+            Some(model_name),
         );
     }
 
     fn save_model_selection(
         &self,
+        cx: &mut App,
         key: &str,
-        provider_id: Option<&UniqueId>,
-        provider_name: Option<&str>,
-        model: Option<&str>,
+        provider_id: Option<UniqueId>,
+        provider_name: Option<String>,
+        model: Option<String>,
     ) {
-        if let Some(db) = &self.db_connection {
-            let _ = db.execute(
-                "INSERT OR REPLACE INTO model_selections (key, provider_id, provider_name, model) VALUES (?1, ?2, ?3, ?4)",
-                (key, provider_id, provider_name, model),
-            );
+        let db = self.db().clone();
+        let key = key.to_string();
+        cx.spawn(async move |_cx| {
+            // Use delete + insert since notitia doesn't have upsert
+            db.mutate(
+                AstrumDb::MODEL_SELECTIONS
+                    .delete()
+                    .filter(ModelSelectionRecord::KEY.eq(key.clone())),
+            )
+            .execute()
+            .await
+            .ok();
+            db.mutate(
+                AstrumDb::MODEL_SELECTIONS.insert(
+                    ModelSelectionRecord::build()
+                        .key(key)
+                        .provider_id(provider_id)
+                        .provider_name(provider_name)
+                        .model(model),
+                ),
+            )
+            .execute()
+            .await
+            .ok();
+        })
+        .detach();
+    }
+
+    fn load_providers_from_db_sync(&mut self, cx: &mut App) {
+        // Use smol::block_on to load providers synchronously at init time.
+        // This is acceptable because init() is called once at startup.
+        let db = self.db().clone();
+        let result: Result<
+            BTreeMap<OrderKey, (UniqueId, String, String, Option<String>, Option<String>)>,
+            _,
+        > = smol::block_on(async {
+            db.query(
+                AstrumDb::PROVIDERS
+                    .select((
+                        ProviderRecord::ID,
+                        ProviderRecord::KIND,
+                        ProviderRecord::NAME,
+                        ProviderRecord::URL,
+                        ProviderRecord::ICON,
+                    ))
+                    .order_by(ProviderRecord::CREATED_AT, OrderDirection::Asc)
+                    .fetch_all::<BTreeMap<_, _>>(),
+            )
+            .execute()
+            .await
+        });
+
+        if let Ok(rows) = result {
+            for (_order, (provider_id, kind_str, name, url, icon)) in rows {
+                let kind = ProviderKind::from_str(&kind_str);
+                let http_client = GpuiHttpWrapper::new(cx.http_client());
+                self.init_provider(
+                    cx,
+                    &provider_id,
+                    &kind,
+                    name,
+                    url.unwrap_or_else(|| kind.default_url().to_string()),
+                    icon.unwrap_or_else(|| kind.default_icon().to_string()),
+                    http_client,
+                );
+            }
         }
     }
 
-    fn load_model_selections_from_db(&mut self, cx: &mut App, db: &rusqlite::Connection) {
-        let mut stmt = match db.prepare(
-            "SELECT key, provider_id, provider_name, model FROM model_selections WHERE key IN ('current', 'chat_titles')",
-        ) {
-            Ok(stmt) => stmt,
-            Err(_) => return,
-        };
+    fn load_model_selections_from_db_sync(&mut self, cx: &mut App) {
+        let db = self.db().clone();
+        let result: Result<Vec<(String, Option<UniqueId>, Option<String>, Option<String>)>, _> =
+            smol::block_on(async {
+                db.query(
+                    AstrumDb::MODEL_SELECTIONS
+                        .select((
+                            ModelSelectionRecord::KEY,
+                            ModelSelectionRecord::PROVIDER_ID,
+                            ModelSelectionRecord::PROVIDER_NAME,
+                            ModelSelectionRecord::MODEL,
+                        ))
+                        .fetch_all::<Vec<_>>(),
+                )
+                .execute()
+                .await
+            });
 
-        let rows = match stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-            ))
-        }) {
-            Ok(rows) => rows,
-            Err(_) => return,
-        };
+        let Ok(rows) = result else { return };
 
-        for row_result in rows {
-            let Ok((key, provider_id_str, provider_name, model)) = row_result else {
-                continue;
-            };
-
-            let provider_id = provider_id_str.map(UniqueId::from_string);
-
+        for (key, provider_id, provider_name, model) in rows {
             // Check if provider exists before loading
             let provider_exists = provider_id
                 .as_ref()
@@ -449,57 +441,6 @@ impl<'a> ModelsManager {
         }
     }
 
-    fn load_providers_from_db(
-        &mut self,
-        cx: &mut App,
-        db_connection: Arc<rusqlite::Connection>,
-    ) -> Result<(), DbError> {
-        let mut stmt = db_connection
-            .prepare(
-                r#"
-            SELECT
-                id,
-                kind,
-                name,
-                url,
-                icon
-            FROM providers
-            ORDER BY created_at
-            "#,
-            )
-            .map_err(|err| DbError::SqliteError(err))?;
-
-        let rows = stmt
-            .query_map([], |row| {
-                let provider_id = UniqueId::from_string(row.get::<_, String>(0)?);
-                let kind = row.get::<_, ProviderKind>(1)?;
-                let name = row.get::<_, String>(2)?;
-                let url = row.get::<_, String>(3)?;
-                let icon = row.get::<_, Option<String>>(4)?;
-
-                let http_client = GpuiHttpWrapper::new(cx.http_client());
-
-                self.init_provider(
-                    cx,
-                    &provider_id,
-                    &kind,
-                    name,
-                    url,
-                    icon.unwrap_or_else(|| kind.default_icon().to_string()),
-                    http_client,
-                );
-
-                Ok(())
-            })
-            .map_err(DbError::SqliteError)?;
-
-        for row_result in rows {
-            row_result.map_err(DbError::SqliteError)?;
-        }
-
-        Ok(())
-    }
-
     fn create_provider_client(
         kind: &ProviderKind,
         provider_id: &UniqueId,
@@ -510,13 +451,13 @@ impl<'a> ModelsManager {
         match kind {
             ProviderKind::Ollama => Arc::new(OllamaProvider::new(http_client).url(url)),
             ProviderKind::OpenAi => {
-                let api_key = get_secret(Self::construct_provider_api_key_name(provider_id, name))
-                    .unwrap_or_default();
+                let secret_name = Self::construct_provider_api_key_name(provider_id, name);
+                let api_key = get_secret(&secret_name).unwrap_or_default();
                 Arc::new(OpenAiProvider::new(http_client, api_key).url(url))
             }
             ProviderKind::Anthropic => {
-                let api_key = get_secret(Self::construct_provider_api_key_name(provider_id, name))
-                    .unwrap_or_default();
+                let secret_name = Self::construct_provider_api_key_name(provider_id, name);
+                let api_key = get_secret(&secret_name).unwrap_or_default();
                 Arc::new(AnthropicProvider::new(http_client, api_key).url(url))
             }
         }
@@ -545,21 +486,33 @@ impl<'a> ModelsManager {
     }
 
     /// Reinitialize a provider's inner client with updated URL/API key.
-    pub fn reinit_provider(&mut self, cx: &mut App, provider_id: &UniqueId) -> Result<(), DbError> {
-        let db = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("db_connection"))?;
+    pub fn reinit_provider(&mut self, cx: &mut App, provider_id: &UniqueId) {
+        let Some(provider) = self.providers.read(cx).get(provider_id).cloned() else {
+            return;
+        };
 
-        let kind: ProviderKind = db
-            .query_row(
-                "SELECT kind FROM providers WHERE id = ?1",
-                [&provider_id],
-                |row| row.get(0),
+        // We need the kind. Look it up from the in-memory provider cache.
+        // The kind is not stored in the Provider struct, so we need to look it up from DB.
+        // Use the URL pattern as a heuristic, or store kind in Provider.
+        // For now, query the DB synchronously.
+        let db = self.db().clone();
+        let provider_id_clone = provider_id.clone();
+        let kind_result: Result<String, _> = smol::block_on(async {
+            db.query(
+                AstrumDb::PROVIDERS
+                    .select(ProviderRecord::KIND)
+                    .filter(ProviderRecord::ID.eq(provider_id_clone))
+                    .fetch_one(),
             )
-            .map_err(DbError::SqliteError)?;
+            .execute()
+            .await
+        });
 
-        let provider = self.get_provider(cx, provider_id)?;
+        let Ok(kind_str) = kind_result else {
+            return;
+        };
+        let kind = ProviderKind::from_str(&kind_str);
+
         let name = provider.name.read(cx).to_string();
         let url = provider.url.read(cx).to_string();
         let icon = provider.icon.read(cx).to_string();
@@ -573,8 +526,6 @@ impl<'a> ModelsManager {
             providers.insert(provider_id.clone(), new_provider);
             cx.notify();
         });
-
-        Ok(())
     }
 
     fn construct_provider_api_key_name(provider_id: &UniqueId, name: &str) -> String {
@@ -597,8 +548,10 @@ impl<'a> ModelsManager {
         cx: &mut App,
         provider_id: UniqueId,
         api_key: Option<String>,
-    ) -> Result<(), DbError> {
-        let provider = self.get_provider(cx, &provider_id)?;
+    ) {
+        let Some(provider) = self.providers.read(cx).get(&provider_id).cloned() else {
+            return;
+        };
 
         let secret_name =
             Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
@@ -611,35 +564,30 @@ impl<'a> ModelsManager {
                 let _ = remove_secret(&secret_name);
             }
         }
-
-        Ok(())
     }
 
-    pub fn edit_provider_url(
-        &mut self,
-        cx: &mut App,
-        provider_id: UniqueId,
-        url: String,
-    ) -> Result<(), DbError> {
-        let _provider = self.get_provider(cx, &provider_id)?;
+    pub fn edit_provider_url(&mut self, cx: &mut App, provider_id: UniqueId, url: String) {
+        // Update DB asynchronously
+        let db = self.db().clone();
+        let provider_id_clone = provider_id.clone();
+        let url_clone = url.clone();
+        cx.spawn(async move |_cx| {
+            db.mutate(
+                AstrumDb::PROVIDERS
+                    .update(
+                        ProviderRecord::build()
+                            .url(url_clone)
+                            .edited_at(DbDateTime::now()),
+                    )
+                    .filter(ProviderRecord::ID.eq(provider_id_clone)),
+            )
+            .execute()
+            .await
+            .unwrap();
+        })
+        .detach();
 
-        let db = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("db_connection"))?;
-
-        let edited_at = Utc::now().naive_utc();
-
-        db.execute(
-            r#"
-                UPDATE providers
-                SET url = ?1, edited_at = ?2
-                WHERE id = ?3
-                "#,
-            (&url, &edited_at, &provider_id),
-        )
-        .map_err(DbError::SqliteError)?;
-
+        // Update in-memory state immediately
         self.providers.update(cx, |providers, cx| {
             if let Some(provider) = providers.get(&provider_id) {
                 provider.url.update(cx, |provider_url, cx| {
@@ -648,36 +596,43 @@ impl<'a> ModelsManager {
                 });
             }
         });
-
-        Ok(())
     }
 
-    pub fn delete_provider(&mut self, cx: &mut App, provider_id: UniqueId) -> Result<(), DbError> {
-        let provider = self.get_provider(cx, &provider_id)?;
+    pub fn delete_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
+        let provider = self.providers.read(cx).get(&provider_id).cloned();
 
-        let db = self
-            .db_connection
-            .as_ref()
-            .ok_or_else(|| DbError::MissingData("db_connection"))?;
+        // Delete from DB asynchronously
+        let db = self.db().clone();
+        let provider_id_clone = provider_id.clone();
+        cx.spawn(async move |_cx| {
+            db.mutate(
+                AstrumDb::PROVIDERS
+                    .delete()
+                    .filter(ProviderRecord::ID.eq(provider_id_clone)),
+            )
+            .execute()
+            .await
+            .unwrap();
+        })
+        .detach();
 
-        db.execute("DELETE FROM providers WHERE id = ?1", [&provider_id])
-            .map_err(DbError::SqliteError)?;
-
-        let secret_name =
-            Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
-        let _ = remove_secret(&secret_name);
+        // Clean up secrets
+        if let Some(provider) = provider {
+            let secret_name =
+                Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
+            let _ = remove_secret(&secret_name);
+        }
 
         // Delete cached models for this provider
         self.models_cache.update(cx, |cache, _| {
             cache.delete_models_for_provider(&provider_id);
         });
 
+        // Remove from in-memory state immediately
         self.providers.update(cx, |providers, cx| {
             providers.remove(&provider_id);
             cx.notify();
         });
-
-        Ok(())
     }
 }
 
@@ -706,26 +661,13 @@ pub enum ProviderKind {
     OpenAi,
 }
 
-impl ToSql for ProviderKind {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-        Ok(ToSqlOutput::from(match self {
-            Self::Ollama => "ollama",
-            Self::Anthropic => "anthropic",
-            Self::OpenAi => "openai",
-        }))
-    }
-}
-
-impl FromSql for ProviderKind {
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value.as_str()? {
-            "ollama" => Ok(Self::Ollama),
-            "anthropic" => Ok(Self::Anthropic),
-            "openai" => Ok(Self::OpenAi),
-            other => Err(FromSqlError::Other(Box::new(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("unknown ProviderKind: {other}"),
-            )))),
+impl ProviderKind {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "ollama" => Self::Ollama,
+            "anthropic" => Self::Anthropic,
+            "openai" => Self::OpenAi,
+            _ => Self::Ollama,
         }
     }
 }

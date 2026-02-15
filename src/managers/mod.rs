@@ -1,11 +1,12 @@
 mod unique_id;
 
-use std::sync::Arc;
-
-use thiserror::Error;
-
 use gpui::App;
+use notitia::Notitia;
+use notitia::prelude::*;
+use notitia_sqlite::SqliteAdapter;
 pub use unique_id::*;
+
+use crate::schema::AstrumDb;
 
 mod models_manager;
 pub use models_manager::*;
@@ -23,6 +24,7 @@ mod update_manager;
 pub use update_manager::*;
 
 pub struct Managers {
+    pub db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     pub models: ModelsManager,
     pub chats: ChatsManager,
     pub persistence: PersistenceManager,
@@ -33,6 +35,7 @@ pub struct Managers {
 impl Managers {
     pub fn new(cx: &mut App) -> Self {
         Self {
+            db: None,
             models: ModelsManager::new(cx),
             chats: ChatsManager::new(cx),
             persistence: PersistenceManager::new(),
@@ -41,26 +44,17 @@ impl Managers {
         }
     }
 
-    pub fn init(&mut self, cx: &mut App) -> rusqlite::Result<()> {
-        let db_dir = self.persistence.local_data_dir().unwrap().join("db.sqlite");
-
-        let db_connection = Arc::new(rusqlite::Connection::open(db_dir)?);
-
-        self.models.init(cx, db_connection.clone());
-        self.chats.init(cx, db_connection).unwrap();
-
-        Ok(())
+    /// Get the database connection URL. Must be called before `connect_db`.
+    pub fn db_url(&self) -> String {
+        let db_path = self.persistence.local_data_dir().unwrap().join("db.sqlite");
+        format!("sqlite:{}", db_path.display())
     }
-}
 
-#[derive(Error, Debug)]
-pub enum DbError {
-    #[error("Missing data: {0}")]
-    MissingData(&'static str),
-
-    #[error("error: {0}")]
-    Error(&'static str),
-
-    #[error("An error with sqlite.")]
-    SqliteError(#[source] rusqlite::Error),
+    /// Initialize managers with an already-connected database.
+    /// Call this inside `cx.update()` after awaiting `connect_db`.
+    pub fn init_with_db(&mut self, cx: &mut App, db: Notitia<AstrumDb, SqliteAdapter>) {
+        self.db = Some(db.clone());
+        self.models.init(cx, db.clone());
+        self.chats.init(cx, db);
+    }
 }
