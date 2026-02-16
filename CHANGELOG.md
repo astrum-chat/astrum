@@ -1,4 +1,4 @@
-# Unreleased
+# v0.1.7
 ## Features
 - Internally migrated to Notitia - syncs db to gpui state.
 
