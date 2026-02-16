@@ -19,12 +19,8 @@ enum MessageMutation {
 pub struct ChatsManager {
     db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     current_chat_id: Entity<Option<UniqueId>>,
-    /// Tracks whether a response is currently being streamed
     pub is_streaming: Entity<bool>,
-    /// Handle to abort the current streaming task
     pub streaming_abort_handle: Entity<Option<AbortHandle>>,
-    /// Per-entity mutation queues keyed by the entity ID (message or chat).
-    /// Each queue has its own consumer task for sequential execution.
     mutation_queues: HashMap<UniqueId, Sender<MessageMutation>>,
 }
 
@@ -43,9 +39,6 @@ impl ChatsManager {
         self.db = Some(db);
     }
 
-    /// Get or create a per-message mutation queue. Each queue has its own
-    /// consumer task so different messages can be mutated concurrently while
-    /// mutations on the same message are executed sequentially.
     fn queue_for(&mut self, id: &UniqueId, cx: &mut App) -> &Sender<MessageMutation> {
         let db = self.db().clone();
         let id_clone = id.clone();
@@ -90,8 +83,6 @@ impl ChatsManager {
         })
     }
 
-    /// Drop a mutation queue once streaming for a message is done.
-    /// The consumer task will exit naturally when the sender is dropped.
     pub fn drop_mutation_queue(&mut self, id: &UniqueId) {
         self.mutation_queues.remove(id);
     }
@@ -137,8 +128,7 @@ impl ChatsManager {
         self.set_streaming(cx, false);
     }
 
-    /// Create a new chat. Returns the chat_id immediately.
-    /// The DB insert happens asynchronously; the subscription will pick it up.
+    /// Create a new chat and return its ID.
     pub fn create_chat(&self, cx: &mut App) -> UniqueId {
         let chat_id = UniqueId::new();
         let now = DbDateTime::now();
@@ -161,8 +151,7 @@ impl ChatsManager {
         chat_id
     }
 
-    /// Push a message to a chat. Blocks until the insert completes.
-    /// Also bumps the chat's edited_at.
+    /// Insert a message and bump the chat's `edited_at`.
     pub fn push_message(
         &self,
         chat_id: &UniqueId,
@@ -203,8 +192,6 @@ impl ChatsManager {
         msg_id
     }
 
-    /// Append content to a message (for streaming).
-    /// Queued for sequential execution to preserve chunk order.
     pub fn push_message_content(
         &mut self,
         cx: &mut App,
@@ -217,8 +204,6 @@ impl ChatsManager {
         });
     }
 
-    /// Set the title of a chat.
-    /// Queued for sequential execution.
     pub fn set_title(&mut self, cx: &mut App, chat_id: &UniqueId, title: impl Into<String>) {
         let queue = self.queue_for(chat_id, cx);
         let _ = queue.send_blocking(MessageMutation::SetTitle {

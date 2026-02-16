@@ -30,12 +30,21 @@ pub struct ProviderModelPair {
     pub model: Entity<Option<String>>,
 }
 
+impl ProviderModelPair {
+    pub fn read_selection(&self, cx: &App) -> (Option<UniqueId>, Option<String>, Option<String>) {
+        (
+            self.provider_id.read(cx).clone(),
+            self.provider_name.read(cx).clone(),
+            self.model.read(cx).clone(),
+        )
+    }
+}
+
 pub struct ModelsManager {
     db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     pub current_model: ProviderModelPair,
     pub chat_titles_model: ProviderModelPair,
-    /// Cache for provider models
     pub models_cache: Entity<ModelsCache>,
 }
 
@@ -79,13 +88,15 @@ impl<'a> ModelsManager {
             .and_then(|id| self.providers.read(cx).get(id))
     }
 
-    pub fn set_current_provider(
+    pub fn set_current_selection(
         &mut self,
         cx: &mut App,
         provider_id: UniqueId,
         provider_name: impl Into<String>,
+        model: impl Into<String>,
     ) {
         let provider_name = provider_name.into();
+        let model = model.into();
         cx.update_entity(
             &self.current_model.provider_id,
             |current_provider_id, cx| {
@@ -100,12 +111,16 @@ impl<'a> ModelsManager {
                 cx.notify();
             },
         );
+        cx.update_entity(&self.current_model.model, |current_model, cx| {
+            *current_model = Some(model.clone());
+            cx.notify();
+        });
         self.save_model_selection(
             cx,
             "current",
             Some(provider_id),
             Some(provider_name),
-            self.current_model.model.read(cx).clone(),
+            Some(model),
         );
     }
 
@@ -126,13 +141,11 @@ impl<'a> ModelsManager {
         let name = name.into();
         let url = url.into();
 
-        // Save API key
         if let Some(api_key) = api_key {
             let secret_name = &Self::construct_provider_api_key_name(&provider_id, &name);
             let _ = set_secret(secret_name, api_key.expose_secret());
         }
 
-        // Insert into DB asynchronously
         let db = self.db().clone();
         let now = DbDateTime::now();
         let provider_id_clone = provider_id.clone();
@@ -159,7 +172,6 @@ impl<'a> ModelsManager {
         })
         .detach();
 
-        // Initialize the runtime client immediately
         let http_client = GpuiHttpWrapper::new(cx.http_client());
         self.init_provider(
             cx,
@@ -176,21 +188,6 @@ impl<'a> ModelsManager {
 
     pub fn get_current_model(&'a self, cx: &'a App) -> Option<&'a String> {
         self.current_model.model.read(cx).as_ref()
-    }
-
-    pub fn set_current_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
-        let model_name = model_name.into();
-        cx.update_entity(&self.current_model.model, |model, cx| {
-            *model = Some(model_name.clone());
-            cx.notify();
-        });
-        self.save_model_selection(
-            cx,
-            "current",
-            self.current_model.provider_id.read(cx).clone(),
-            self.current_model.provider_name.read(cx).clone(),
-            Some(model_name),
-        );
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
@@ -236,13 +233,15 @@ impl<'a> ModelsManager {
             .and_then(|id| self.providers.read(cx).get(id))
     }
 
-    pub fn set_chat_titles_provider(
+    pub fn set_chat_titles_selection(
         &mut self,
         cx: &mut App,
         provider_id: UniqueId,
         provider_name: impl Into<String>,
+        model: impl Into<String>,
     ) {
         let provider_name = provider_name.into();
+        let model = model.into();
         cx.update_entity(
             &self.chat_titles_model.provider_id,
             |current_provider_id, cx| {
@@ -257,32 +256,21 @@ impl<'a> ModelsManager {
                 cx.notify();
             },
         );
-        self.save_model_selection(
-            cx,
-            "chat_titles",
-            Some(provider_id),
-            Some(provider_name),
-            self.chat_titles_model.model.read(cx).clone(),
-        );
-    }
-
-    pub fn get_chat_titles_model(&'a self, cx: &'a App) -> Option<&'a String> {
-        self.chat_titles_model.model.read(cx).as_ref()
-    }
-
-    pub fn set_chat_titles_model(&mut self, cx: &mut App, model_name: impl Into<String>) {
-        let model_name = model_name.into();
-        cx.update_entity(&self.chat_titles_model.model, |model, cx| {
-            *model = Some(model_name.clone());
+        cx.update_entity(&self.chat_titles_model.model, |current_model, cx| {
+            *current_model = Some(model.clone());
             cx.notify();
         });
         self.save_model_selection(
             cx,
             "chat_titles",
-            self.chat_titles_model.provider_id.read(cx).clone(),
-            self.chat_titles_model.provider_name.read(cx).clone(),
-            Some(model_name),
+            Some(provider_id),
+            Some(provider_name),
+            Some(model),
         );
+    }
+
+    pub fn get_chat_titles_model(&'a self, cx: &'a App) -> Option<&'a String> {
+        self.chat_titles_model.model.read(cx).as_ref()
     }
 
     fn save_model_selection(
@@ -305,6 +293,7 @@ impl<'a> ModelsManager {
             .execute()
             .await
             .ok();
+
             db.mutate(
                 AstrumDb::MODEL_SELECTIONS.insert(
                     ModelSelectionRecord::build()
@@ -383,7 +372,6 @@ impl<'a> ModelsManager {
         let Ok(rows) = result else { return };
 
         for (key, provider_id, provider_name, model) in rows {
-            // Check if provider exists before loading
             let provider_exists = provider_id
                 .as_ref()
                 .map(|id| self.providers.read(cx).get(id).is_some())
@@ -491,10 +479,7 @@ impl<'a> ModelsManager {
             return;
         };
 
-        // We need the kind. Look it up from the in-memory provider cache.
-        // The kind is not stored in the Provider struct, so we need to look it up from DB.
-        // Use the URL pattern as a heuristic, or store kind in Provider.
-        // For now, query the DB synchronously.
+        // kind is not stored in Provider, so query the DB.
         let db = self.db().clone();
         let provider_id_clone = provider_id.clone();
         let kind_result: Result<String, _> = smol::block_on(async {
@@ -567,7 +552,6 @@ impl<'a> ModelsManager {
     }
 
     pub fn edit_provider_url(&mut self, cx: &mut App, provider_id: UniqueId, url: String) {
-        // Update DB asynchronously
         let db = self.db().clone();
         let provider_id_clone = provider_id.clone();
         let url_clone = url.clone();
@@ -587,7 +571,6 @@ impl<'a> ModelsManager {
         })
         .detach();
 
-        // Update in-memory state immediately
         self.providers.update(cx, |providers, cx| {
             if let Some(provider) = providers.get(&provider_id) {
                 provider.url.update(cx, |provider_url, cx| {
@@ -601,7 +584,6 @@ impl<'a> ModelsManager {
     pub fn delete_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
         let provider = self.providers.read(cx).get(&provider_id).cloned();
 
-        // Delete from DB asynchronously
         let db = self.db().clone();
         let provider_id_clone = provider_id.clone();
         cx.spawn(async move |_cx| {
@@ -616,19 +598,16 @@ impl<'a> ModelsManager {
         })
         .detach();
 
-        // Clean up secrets
         if let Some(provider) = provider {
             let secret_name =
                 Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
             let _ = remove_secret(&secret_name);
         }
 
-        // Delete cached models for this provider
         self.models_cache.update(cx, |cache, _| {
             cache.delete_models_for_provider(&provider_id);
         });
 
-        // Remove from in-memory state immediately
         self.providers.update(cx, |providers, cx| {
             providers.remove(&provider_id);
             cx.notify();

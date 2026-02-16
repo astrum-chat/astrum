@@ -109,14 +109,12 @@ fn render_model_picker(
 
                 if let Some(selection) = selection {
                     let mut managers = managers_for_callback.write_arc_blocking();
-                    managers.models.set_chat_titles_provider(
+                    managers.models.set_chat_titles_selection(
                         cx,
                         selection.provider_id,
                         selection.provider_name,
+                        selection.model_id,
                     );
-                    managers
-                        .models
-                        .set_chat_titles_model(cx, selection.model_id);
                 }
             }
             state.hide_menu(cx);

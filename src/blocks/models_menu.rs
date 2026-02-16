@@ -18,13 +18,10 @@ use smol::lock::RwLock;
 
 use crate::{Managers, managers::Provider, managers::UniqueId, utils::FrontInsertMap};
 
-/// Minimum interval between model fetches per provider (in seconds)
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
 
-/// Global flag to prevent concurrent fetch operations
 static FETCH_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
-/// A cached model entry with provider info
 #[derive(Clone)]
 pub struct CachedModel {
     pub provider_id: UniqueId,
@@ -32,20 +29,15 @@ pub struct CachedModel {
     pub model_id: String,
 }
 
-/// Per-provider model cache entry
 struct ProviderModels {
     models: Vec<String>,
     provider_name: String,
     fetched_at: Instant,
 }
 
-/// Cache for provider models with per-provider granularity
 pub struct ModelsCache {
-    /// All models concatenated for easy iteration
     all_models: Vec<CachedModel>,
-    /// Per-provider model lists with fetch timestamps
     per_provider: HashMap<UniqueId, ProviderModels>,
-    /// Cached config state per provider for change detection
     provider_config_cache: HashMap<UniqueId, CachedProviderState>,
 }
 
@@ -58,12 +50,10 @@ impl ModelsCache {
         }
     }
 
-    /// Get all cached models (flat list)
     pub fn get_all_models(&self) -> &[CachedModel] {
         &self.all_models
     }
 
-    /// Check if provider cache is stale (> cooldown or missing)
     pub fn is_provider_stale(&self, provider_id: &UniqueId) -> bool {
         match self.per_provider.get(provider_id) {
             Some(cached) => {
@@ -73,7 +63,6 @@ impl ModelsCache {
         }
     }
 
-    /// Get cached models for a specific provider (if fresh)
     pub fn get_provider_models(&self, provider_id: &UniqueId) -> Option<(&str, &[String])> {
         let cached = self.per_provider.get(provider_id)?;
         if cached.fetched_at.elapsed() < Duration::from_secs(MODEL_FETCH_COOLDOWN_SECS) {
@@ -83,7 +72,6 @@ impl ModelsCache {
         }
     }
 
-    /// Update models for a specific provider, rebuilds all_models
     pub fn refresh_models_for_provider(
         &mut self,
         provider_id: UniqueId,
@@ -107,7 +95,6 @@ impl ModelsCache {
         self.rebuild_all_models();
     }
 
-    /// Remove a provider's models and config cache, rebuilds all_models
     pub fn delete_models_for_provider(&mut self, provider_id: &UniqueId) {
         if let Some(removed) = self.per_provider.remove(provider_id) {
             info!(
@@ -133,7 +120,6 @@ impl ModelsCache {
             .or_insert_with(|| CachedProviderState::new(current_url, current_api_key))
     }
 
-    /// Rebuild the flat all_models list from per_provider data
     fn rebuild_all_models(&mut self) {
         self.all_models.clear();
         for (provider_id, provider_models) in &self.per_provider {
@@ -148,15 +134,12 @@ impl ModelsCache {
     }
 }
 
-/// Compute a SHA-256 hash for an API key to compare without storing the actual key
 fn hash_api_key(api_key: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(api_key.as_bytes());
     hasher.finalize().into()
 }
 
-/// Cached state for detecting changes to provider settings.
-/// Used to avoid unnecessary model refetches when URL/API key haven't changed.
 #[derive(Clone)]
 struct CachedProviderState {
     url: String,
@@ -164,7 +147,6 @@ struct CachedProviderState {
 }
 
 impl CachedProviderState {
-    /// Create a new cached provider state from the current URL and API key
     pub fn new(url: impl Into<String>, api_key: &str) -> Self {
         Self {
             url: url.into(),
@@ -172,28 +154,23 @@ impl CachedProviderState {
         }
     }
 
-    /// Check if the URL has changed. Returns true if changed.
     pub fn url_changed(&self, new_url: &str) -> bool {
         self.url != new_url
     }
 
-    /// Check if the API key has changed. Returns true if changed.
     pub fn api_key_changed(&self, new_api_key: &str) -> bool {
         self.api_key_hash != hash_api_key(new_api_key)
     }
 
-    /// Update the cached URL
     pub fn set_url(&mut self, url: impl Into<String>) {
         self.url = url.into();
     }
 
-    /// Update the cached API key hash
     pub fn set_api_key(&mut self, api_key: &str) {
         self.api_key_hash = hash_api_key(api_key);
     }
 }
 
-/// Value type for ModelSelectItem containing both provider and model info.
 #[derive(Clone)]
 pub struct ModelSelection {
     pub provider_id: UniqueId,
@@ -201,13 +178,9 @@ pub struct ModelSelection {
     pub model_id: String,
 }
 
-/// Represents a model item in the select menu.
-/// Contains both display information and selection data.
 #[derive(Clone)]
 pub struct ModelSelectItem {
-    /// Display name shown in the menu (e.g., "Ollama: deepseek-r1:14b")
     display_name: SharedString,
-    /// The selection value containing provider and model IDs
     selection: ModelSelection,
 }
 
@@ -244,7 +217,6 @@ impl SelectItem for ModelSelectItem {
     }
 }
 
-/// Callback type for custom on_item_click handlers.
 pub type OnModelItemClickFn = Box<
     dyn Fn(
         bool,
@@ -255,7 +227,6 @@ pub type OnModelItemClickFn = Box<
     ),
 >;
 
-/// Initial selection data for pre-populating the select state
 pub struct InitialModelSelection {
     pub provider_id: UniqueId,
     pub provider_name: String,
@@ -323,12 +294,12 @@ pub fn create_models_select_state(
 
                 // Update ModelsManager
                 let mut managers = managers_for_callback.write_arc_blocking();
-                managers.models.set_current_provider(
+                managers.models.set_current_selection(
                     cx,
                     selection.provider_id,
                     selection.provider_name,
+                    selection.model_id,
                 );
-                managers.models.set_current_model(cx, selection.model_id);
             }
 
             state.hide_menu(cx);
@@ -536,10 +507,7 @@ fn spawn_fetch_models(
     .detach();
 }
 
-/// Prefetches models from all providers into the cache on startup.
-/// This populates the cache so models are immediately available when the picker is opened.
 pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
-    // Prevent concurrent fetch operations
     if FETCH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -547,7 +515,6 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
     debug!("Prefetching models from all providers");
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        // Collect provider info we need for fetching
         let (providers_info, models_cache): (
             Vec<(UniqueId, crate::managers::Provider)>,
             Entity<ModelsCache>,
@@ -569,7 +536,6 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
             let provider_name: String =
                 cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
 
-            // Fetch from API
             match provider.inner.list_models().await {
                 Ok(models) => {
                     let model_ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
@@ -595,14 +561,32 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
             }
         }
 
-        // Reset fetch in progress flag
         FETCH_IN_PROGRESS.store(false, Ordering::SeqCst);
         debug!("Prefetch complete");
     })
     .detach();
 }
 
-/// Fetches models from all providers asynchronously and populates the select state.
+fn push_model_item(
+    state: &Arc<SelectState<ModelSelection, ModelSelectItem>>,
+    provider_name: &str,
+    model_id: &str,
+    provider_id: &UniqueId,
+    current_provider_id: Option<&UniqueId>,
+    current_model: Option<&String>,
+    cx: &mut App,
+) {
+    let item = ModelSelectItem::new(provider_name, model_id.to_string(), provider_id.clone());
+    let item_name = item.name();
+    state.push_item(cx, item);
+
+    if current_provider_id == Some(provider_id)
+        && current_model.map(|s| s.as_str()) == Some(model_id)
+    {
+        let _ = state.select_item(cx, item_name);
+    }
+}
+
 pub fn fetch_all_models(
     managers: Arc<RwLock<Managers>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
@@ -618,9 +602,6 @@ pub fn fetch_all_models(
     );
 }
 
-/// Fetches models from all providers asynchronously and populates the select state.
-/// Uses the specified source to determine which model to auto-select.
-/// Models are cached per-provider to avoid excessive API calls.
 pub fn fetch_all_models_with_source(
     managers: Arc<RwLock<Managers>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
@@ -628,33 +609,21 @@ pub fn fetch_all_models_with_source(
     source: ModelSelectionSource,
     cx: &mut App,
 ) {
-    // Prevent concurrent fetch operations
     if FETCH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return;
     }
 
-    // Get current provider_id and model before spawning async task
     let (current_provider_id, current_model): (Option<UniqueId>, Option<String>) = {
         let managers = managers.read_arc_blocking();
-        match source {
-            ModelSelectionSource::Current => (
-                managers.models.current_model.provider_id.read(cx).clone(),
-                managers.models.get_current_model(cx).cloned(),
-            ),
-            ModelSelectionSource::ChatTitles => (
-                managers
-                    .models
-                    .chat_titles_model
-                    .provider_id
-                    .read(cx)
-                    .clone(),
-                managers.models.get_chat_titles_model(cx).cloned(),
-            ),
-        }
+        let pair = match source {
+            ModelSelectionSource::Current => &managers.models.current_model,
+            ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+        };
+        let (provider_id, _, model) = pair.read_selection(cx);
+        (provider_id, model)
     };
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        // Collect provider info we need for fetching
         let providers_info: Vec<(UniqueId, crate::managers::Provider)> = {
             let managers = managers.read_arc_blocking();
 
@@ -670,13 +639,11 @@ pub fn fetch_all_models_with_source(
             let provider_name: String =
                 cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
 
-            // Check cache first
             let is_stale = cx.read_entity(&models_cache, |cache, _| {
                 cache.is_provider_stale(&provider_id)
             });
 
             if !is_stale {
-                // Use cached models
                 let cached_models: Option<Vec<String>> =
                     cx.read_entity(&models_cache, |cache, _| {
                         cache
@@ -686,33 +653,24 @@ pub fn fetch_all_models_with_source(
 
                 if let Some(models) = cached_models {
                     let _ = cx.update(|cx| {
-                        for model_id in models {
-                            let item = ModelSelectItem::new(
+                        for model_id in &models {
+                            push_model_item(
+                                &state,
                                 &provider_name,
-                                model_id.clone(),
-                                provider_id.clone(),
+                                model_id,
+                                &provider_id,
+                                current_provider_id.as_ref(),
+                                current_model.as_ref(),
+                                cx,
                             );
-
-                            let item_name = item.name();
-                            state.push_item(cx, item);
-
-                            let provider_matches =
-                                current_provider_id.as_ref() == Some(&provider_id);
-                            let model_matches = current_model.as_ref() == Some(&model_id);
-
-                            if provider_matches && model_matches {
-                                let _ = state.select_item(cx, item_name);
-                            }
                         }
                     });
                     continue;
                 }
             }
 
-            // Fetch from API if not cached or stale
             match provider.inner.list_models().await {
                 Ok(models) => {
-                    // Cache the model IDs
                     let model_ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
                     let provider_name_clone = provider_name.clone();
                     let provider_id_clone = provider_id.clone();
@@ -726,24 +684,16 @@ pub fn fetch_all_models_with_source(
                     });
 
                     let _ = cx.update(|cx| {
-                        for model in models {
-                            let item = ModelSelectItem::new(
+                        for model in &models {
+                            push_model_item(
+                                &state,
                                 &provider_name,
-                                model.id.clone(),
-                                provider_id.clone(),
+                                &model.id,
+                                &provider_id,
+                                current_provider_id.as_ref(),
+                                current_model.as_ref(),
+                                cx,
                             );
-
-                            // Select this item if it matches the current provider and model
-                            let item_name = item.name();
-                            state.push_item(cx, item);
-
-                            let provider_matches =
-                                current_provider_id.as_ref() == Some(&provider_id);
-                            let model_matches = current_model.as_ref() == Some(&model.id);
-
-                            if provider_matches && model_matches {
-                                let _ = state.select_item(cx, item_name);
-                            }
                         }
                     });
                 }
@@ -757,14 +707,11 @@ pub fn fetch_all_models_with_source(
             }
         }
 
-        // Reset fetch in progress flag
         FETCH_IN_PROGRESS.store(false, Ordering::SeqCst);
     })
     .detach();
 }
 
-/// Observes the providers entity and clears the models menu when providers change.
-/// Also deselects the current model if its provider no longer exists.
 pub fn observe_providers_for_refresh(
     providers: &Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
@@ -772,16 +719,13 @@ pub fn observe_providers_for_refresh(
     cx: &mut App,
 ) {
     cx.observe(providers, move |providers, cx| {
-        // Clear the menu items
         state.items.update(cx, |items, cx| {
             *items = SelectItemsMap::new();
             cx.notify();
         });
 
-        // Clear the SelectState selection
         state.remove_selection(cx);
 
-        // Check if current provider still exists, if not clear the manager selection
         let mut managers = managers.write_arc_blocking();
         let current_provider_id = managers.models.current_model.provider_id.read(cx).clone();
 
@@ -792,7 +736,6 @@ pub fn observe_providers_for_refresh(
             }
         }
 
-        // Check if chat_titles provider still exists, if not clear the manager selection
         let chat_titles_provider_id = managers
             .models
             .chat_titles_model

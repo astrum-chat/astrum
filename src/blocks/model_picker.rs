@@ -48,31 +48,13 @@ impl ModelPicker {
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        // Compute initial selection from stored provider_id, provider_name, and model
         let initial_selection: Option<InitialModelSelection> = {
             let managers = managers.read_blocking();
-            let (provider_id, provider_name, model) = match source {
-                ModelSelectionSource::Current => (
-                    managers.models.current_model.provider_id.read(cx).clone(),
-                    managers.models.current_model.provider_name.read(cx).clone(),
-                    managers.models.current_model.model.read(cx).clone(),
-                ),
-                ModelSelectionSource::ChatTitles => (
-                    managers
-                        .models
-                        .chat_titles_model
-                        .provider_id
-                        .read(cx)
-                        .clone(),
-                    managers
-                        .models
-                        .chat_titles_model
-                        .provider_name
-                        .read(cx)
-                        .clone(),
-                    managers.models.chat_titles_model.model.read(cx).clone(),
-                ),
+            let pair = match source {
+                ModelSelectionSource::Current => &managers.models.current_model,
+                ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
             };
+            let (provider_id, provider_name, model) = pair.read_selection(cx);
             match (provider_id, provider_name, model) {
                 (Some(pid), Some(pn), Some(m)) => Some(InitialModelSelection {
                     provider_id: pid,
@@ -96,27 +78,15 @@ impl ModelPicker {
         let providers_entity = managers.read_blocking().models.providers.clone();
         observe_providers_for_refresh(&providers_entity, state.clone(), managers.clone(), cx);
 
-        // Get current selection info for populating state
-        let (current_provider_id, current_model) = {
+        let (current_provider_id, _, current_model) = {
             let managers = managers.read_blocking();
-            match source {
-                ModelSelectionSource::Current => (
-                    managers.models.current_model.provider_id.read(cx).clone(),
-                    managers.models.get_current_model(cx).cloned(),
-                ),
-                ModelSelectionSource::ChatTitles => (
-                    managers
-                        .models
-                        .chat_titles_model
-                        .provider_id
-                        .read(cx)
-                        .clone(),
-                    managers.models.get_chat_titles_model(cx).cloned(),
-                ),
-            }
+            let pair = match source {
+                ModelSelectionSource::Current => &managers.models.current_model,
+                ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+            };
+            pair.read_selection(cx)
         };
 
-        // Populate state from cache initially
         populate_state_from_cache(
             &state,
             &models_cache,
@@ -125,38 +95,24 @@ impl ModelPicker {
             cx,
         );
 
-        // Observe cache changes and repopulate state
         {
             let state = state.clone();
             let managers = managers.clone();
             cx.observe(&models_cache, move |models_cache, cx| {
-                // Clear existing items by replacing with new empty map
                 state.items.update(cx, |items, cx| {
                     *items = gpui_tesserae::components::select::SelectItemsMap::new();
                     cx.notify();
                 });
 
-                // Get current selection info
-                let (current_provider_id, current_model) = {
+                let (current_provider_id, _, current_model) = {
                     let managers = managers.read_blocking();
-                    match source {
-                        ModelSelectionSource::Current => (
-                            managers.models.current_model.provider_id.read(cx).clone(),
-                            managers.models.get_current_model(cx).cloned(),
-                        ),
-                        ModelSelectionSource::ChatTitles => (
-                            managers
-                                .models
-                                .chat_titles_model
-                                .provider_id
-                                .read(cx)
-                                .clone(),
-                            managers.models.get_chat_titles_model(cx).cloned(),
-                        ),
-                    }
+                    let pair = match source {
+                        ModelSelectionSource::Current => &managers.models.current_model,
+                        ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+                    };
+                    pair.read_selection(cx)
                 };
 
-                // Repopulate from cache
                 populate_state_from_cache(
                     &state,
                     &models_cache,

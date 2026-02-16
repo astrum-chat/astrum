@@ -87,18 +87,21 @@ impl RenderOnce for Sidebar {
         let current_chat_id_state = chats.get_current_chat_id();
         let current_chat_id = current_chat_id_state.read(cx).clone();
 
-        // Subscribe to the chat list via notitia (only if DB is ready)
         let chat_list: Option<DbEntity<BTreeMap<OrderKey, (UniqueId, Option<String>)>>> =
             if db_initialized {
                 let db = chats.db().clone();
-                Some(window.use_db_query(cx, |_window, _cx| {
-                    db.query(
-                        AstrumDb::CHATS
-                            .select((ChatRecord::ID, ChatRecord::TITLE))
-                            .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
-                            .fetch_all::<BTreeMap<_, _>>(),
-                    )
-                }))
+                Some(window.use_keyed_db_query(
+                    self.id.with_suffix("chat_list"),
+                    cx,
+                    |_window, _cx| {
+                        db.query(
+                            AstrumDb::CHATS
+                                .select((ChatRecord::ID, ChatRecord::TITLE))
+                                .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
+                                .fetch_all::<BTreeMap<_, _>>(),
+                        )
+                    },
+                ))
             } else {
                 None
             };
@@ -246,7 +249,6 @@ impl RenderOnce for Sidebar {
             .h_full()
             .px(px(10.))
             .pt(px(10.))
-            // All items have a bottom padding of 5px
             .pb(px(5.))
             .into_any_element()
         };
