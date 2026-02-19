@@ -6,8 +6,8 @@ use anyml::{
 };
 use enum_assoc::Assoc;
 use gpui::{App, AppContext, Entity, SharedString};
-use notitia::Notitia;
 use notitia::prelude::*;
+use notitia::{Notitia, PrimaryKey};
 use notitia_sqlite::SqliteAdapter;
 use secrecy::{ExposeSecret, SecretString};
 
@@ -315,7 +315,16 @@ impl<'a> ModelsManager {
         // This is acceptable because init() is called once at startup.
         let db = self.db().clone();
         let result: Result<
-            BTreeMap<OrderKey, (UniqueId, String, String, Option<String>, Option<String>)>,
+            BTreeMap<
+                OrderKey,
+                (
+                    PrimaryKey<UniqueId>,
+                    String,
+                    String,
+                    Option<String>,
+                    Option<String>,
+                ),
+            >,
             _,
         > = smol::block_on(async {
             db.query(
@@ -340,7 +349,7 @@ impl<'a> ModelsManager {
                 let http_client = GpuiHttpWrapper::new(cx.http_client());
                 self.init_provider(
                     cx,
-                    &provider_id,
+                    &*provider_id,
                     &kind,
                     name,
                     url.unwrap_or_else(|| kind.default_url().to_string()),
@@ -353,21 +362,28 @@ impl<'a> ModelsManager {
 
     fn load_model_selections_from_db_sync(&mut self, cx: &mut App) {
         let db = self.db().clone();
-        let result: Result<Vec<(String, Option<UniqueId>, Option<String>, Option<String>)>, _> =
-            smol::block_on(async {
-                db.query(
-                    AstrumDb::MODEL_SELECTIONS
-                        .select((
-                            ModelSelectionRecord::KEY,
-                            ModelSelectionRecord::PROVIDER_ID,
-                            ModelSelectionRecord::PROVIDER_NAME,
-                            ModelSelectionRecord::MODEL,
-                        ))
-                        .fetch_all::<Vec<_>>(),
-                )
-                .execute()
-                .await
-            });
+        let result: Result<
+            Vec<(
+                PrimaryKey<String>,
+                Option<UniqueId>,
+                Option<String>,
+                Option<String>,
+            )>,
+            _,
+        > = smol::block_on(async {
+            db.query(
+                AstrumDb::MODEL_SELECTIONS
+                    .select((
+                        ModelSelectionRecord::KEY,
+                        ModelSelectionRecord::PROVIDER_ID,
+                        ModelSelectionRecord::PROVIDER_NAME,
+                        ModelSelectionRecord::MODEL,
+                    ))
+                    .fetch_all::<Vec<_>>(),
+            )
+            .execute()
+            .await
+        });
 
         let Ok(rows) = result else { return };
 

@@ -12,6 +12,7 @@ use gpui_tesserae::{
     theme::ThemeExt,
 };
 use notitia::OrderKey;
+use notitia::PrimaryKey;
 use notitia::prelude::*;
 use notitia_gpui::{DbEntity, WindowNotitiaExt};
 use smol::lock::RwLock;
@@ -87,24 +88,23 @@ impl RenderOnce for Sidebar {
         let current_chat_id_state = chats.get_current_chat_id();
         let current_chat_id = current_chat_id_state.read(cx).clone();
 
-        let chat_list: Option<DbEntity<BTreeMap<OrderKey, (UniqueId, Option<String>)>>> =
-            if db_initialized {
-                let db = chats.db().clone();
-                Some(window.use_keyed_db_query(
-                    self.id.with_suffix("chat_list"),
-                    cx,
-                    |_window, _cx| {
-                        db.query(
-                            AstrumDb::CHATS
-                                .select((ChatRecord::ID, ChatRecord::TITLE))
-                                .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
-                                .fetch_all::<BTreeMap<_, _>>(),
-                        )
-                    },
-                ))
-            } else {
-                None
-            };
+        let chat_list: Option<
+            DbEntity<BTreeMap<OrderKey, (PrimaryKey<UniqueId>, Option<String>)>>,
+        > = if db_initialized {
+            let db = chats.db().clone();
+            Some(
+                window.use_keyed_db_query(self.id.with_suffix("chat_list"), cx, |_window, _cx| {
+                    db.query(
+                        AstrumDb::CHATS
+                            .select((ChatRecord::ID, ChatRecord::TITLE))
+                            .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
+                            .fetch_all::<BTreeMap<_, _>>(),
+                    )
+                }),
+            )
+        } else {
+            None
+        };
 
         let current_query = search_chats_input_state.read(cx).value().to_string();
         let search_state_data = search_state.read(cx);
@@ -119,9 +119,9 @@ impl RenderOnce for Sidebar {
                 .and_then(|cl| cl.read(cx))
                 .map(|set| {
                     set.values()
-                        .map(|(id, title): &(UniqueId, Option<String>)| {
+                        .map(|(id, title): &(PrimaryKey<UniqueId>, Option<String>)| {
                             (
-                                id.clone(),
+                                UniqueId::clone(id),
                                 title.clone().unwrap_or_else(|| "Untitled Chat".to_string()),
                             )
                         })
@@ -181,15 +181,15 @@ impl RenderOnce for Sidebar {
             .and_then(|cl| cl.read(cx))
             .map(|set| {
                 set.values()
-                    .filter(
-                        |(id, _title): &&(UniqueId, Option<String>)| match &filtered_ids {
+                    .filter(|(id, _title): &&(PrimaryKey<UniqueId>, Option<String>)| {
+                        match &filtered_ids {
                             Some(ids) => ids.contains(id),
                             None => true,
-                        },
-                    )
-                    .map(|(id, title): &(UniqueId, Option<String>)| {
+                        }
+                    })
+                    .map(|(id, title): &(PrimaryKey<UniqueId>, Option<String>)| {
                         (
-                            id.clone(),
+                            UniqueId::clone(id),
                             title.clone().unwrap_or_else(|| "Untitled Chat".to_string()),
                         )
                     })

@@ -1,22 +1,19 @@
 use anyml::MessageRole;
 use gpui::{
-    App, Div, ElementId, IntoElement, Overflow, PointRefinement, SharedString, Stateful, Window,
-    div, prelude::*, px,
+    App, Div, ElementId, Hsla, IntoElement, Overflow, PointRefinement, SharedString, Stateful,
+    Styled, Window, div, prelude::*, px,
 };
-use gpui_tesserae::{
-    ElementIdExt,
-    components::ChatBubble,
-    primitives::selectable_text::{SelectableText, SelectableTextState},
-    theme::ThemeExt,
-};
+use gpui_tesserae::{ElementIdExt, components::ChatBubble, theme::ThemeExt};
 use notitia::OrderKey;
+use notitia::PrimaryKey;
 use std::collections::BTreeMap;
 
+use super::md_render::render_markdown;
 use crate::{RgbaExt, managers::UniqueId};
 
 pub fn render_existing_chat(
     base_id: &ElementId,
-    messages: &BTreeMap<OrderKey, (UniqueId, String, String)>,
+    messages: &BTreeMap<OrderKey, (PrimaryKey<UniqueId>, String, String)>,
 ) -> Stateful<Div> {
     div()
         .id(base_id.with_suffix("existing_messages"))
@@ -52,7 +49,7 @@ fn right_align(child: impl IntoElement) -> Div {
 }
 
 fn render_messages(
-    messages: &BTreeMap<OrderKey, (UniqueId, String, String)>,
+    messages: &BTreeMap<OrderKey, (PrimaryKey<UniqueId>, String, String)>,
 ) -> impl Iterator<Item = ChatMessage> + '_ {
     messages.values().map(|(id, role, content)| {
         ChatMessage::new(id.to_string(), MessageRole::from_str(role), content)
@@ -78,61 +75,33 @@ impl ChatMessage {
 
 impl RenderOnce for ChatMessage {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let selectable_content_state =
-            window.use_keyed_state(self.id.with_suffix("state:content"), cx, |_window, cx| {
-                SelectableTextState::new(cx)
-            });
+        let active = cx.get_theme().variants.active(cx);
+        let text_color = active.colors.text.primary;
+        let selection_color: Hsla = active.colors.accent.primary.alpha(0.3).into();
 
-        selectable_content_state.update(cx, |this, cx| {
-            if self.content == this.get_text() {
-                return;
-            };
+        let is_user = matches!(self.role, MessageRole::User);
+        let bg_color: Hsla = if is_user {
+            active.colors.background.quaternary
+        } else {
+            active.colors.background.tertiary
+        }
+        .into();
 
-            this.text(self.content.clone());
-            cx.notify();
-        });
+        let md = render_markdown(
+            &self.content,
+            &self.id,
+            text_color,
+            selection_color,
+            bg_color,
+            window,
+            cx,
+        );
 
-        let font_family = cx.get_theme().layout.text.default_font.family[0].clone();
-
-        let text_size = cx.get_theme().layout.text.default_font.sizes.heading_sm;
-        let selection_color = cx
-            .get_theme()
-            .variants
-            .active(cx)
-            .colors
-            .accent
-            .primary
-            .alpha(0.3);
-
-        let selectable_content =
-            SelectableText::new(self.id.with_suffix("content"), selectable_content_state)
-                .multiline()
-                .multiline_wrapped()
-                .selection_color(selection_color)
-                .selection_rounded(px(6.))
-                .selection_rounded_smoothing(1.)
-                .max_w_full()
-                .font_family(font_family)
-                .text_size(text_size);
-
-        match self.role {
-            MessageRole::User => {
-                let secondary_text_color = cx.get_theme().variants.active(cx).colors.text.secondary;
-
-                right_align(
-                    ChatBubble::new("chat_bubble")
-                        .child(selectable_content.w_auto().text_color(secondary_text_color)),
-                )
+        if is_user {
+            right_align(ChatBubble::new("chat_bubble").child(md.max_w_full().w_auto()))
                 .into_any_element()
-            }
-            _ => {
-                let primary_text_color = cx.get_theme().variants.active(cx).colors.text.primary;
-
-                selectable_content
-                    .w_full()
-                    .text_color(primary_text_color)
-                    .into_any_element()
-            }
+        } else {
+            md.w_full().into_any_element()
         }
     }
 }

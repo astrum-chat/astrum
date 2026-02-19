@@ -1,0 +1,89 @@
+================
+Heading 1
+================
+# Hello World
+---
+(document
+  (heading1
+    (text)))
+
+================
+Heading 2
+================
+## Hello World
+---
+(document
+  (heading2
+    (text)))
+
+================
+Heading 3
+================
+### Hello World
+---
+(document
+  (heading3
+    (text)))
+
+================
+Heading 4
+================
+#### Hello World
+---
+(document
+  (heading4
+    (text)))
+
+================
+Heading 5
+================
+##### Hello World
+---
+(document
+  (heading5
+    (text)))
+
+================
+Heading 6
+================
+###### Hello World
+---
+(document
+  (heading6
+    (text)))
+
+================
+All heading levels
+================
+# One
+## Two
+### Three
+#### Four
+##### Five
+###### Six
+---
+(document
+  (heading1
+    (text))
+  (heading2
+    (text))
+  (heading3
+    (text))
+  (heading4
+    (text))
+  (heading5
+    (text))
+  (heading6
+    (text)))
+
+================
+Heading with inline formatting
+================
+# Hello **bold** world
+---
+(document
+  (heading1
+    (text)
+    (bold
+      (content))
+    (text)))

@@ -1,0 +1,47 @@
+================
+Unclosed bold (streaming)
+================
+Hello **bold text so far
+---
+(document
+  (paragraph
+    (text)
+    (bold
+      (content))))
+
+================
+Unclosed underline (streaming)
+================
+Hello __underline text so far
+---
+(document
+  (paragraph
+    (text)
+    (underline
+      (content))))
+
+================
+Unclosed strikethrough (streaming)
+================
+Hello ~~strike text so far
+---
+(document
+  (paragraph
+    (text)
+    (strikethrough
+      (content))))
+
+================
+Unclosed bold after heading
+================
+# Title
+
+Some **bold text streaming
+---
+(document
+  (heading1
+    (text))
+  (paragraph
+    (text)
+    (bold
+      (content))))

@@ -28,6 +28,7 @@ use crate::{
 };
 
 mod existing_chat;
+mod md_render;
 use existing_chat::render_existing_chat;
 
 mod prompt_new_chat;
@@ -445,10 +446,8 @@ fn send_message(
             };
         };
 
-        // Wrap the streaming future with abort registration
         let _ = Abortable::new(streaming_future, abort_registration).await;
 
-        // Clean up streaming state when done (whether completed or aborted)
         let _ = cx.update(|cx| {
             let mut managers_guard = managers_for_cleanup.write_blocking();
             managers_guard.chats.drop_mutation_queue(&assistant_msg_id);

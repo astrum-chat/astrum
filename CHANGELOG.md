@@ -1,3 +1,7 @@
+# v0.1.8
+## Features
+- Added rudimentary support for markdown in messages.
+
 # v0.1.7
 ## Features
 - Internally migrated to Notitia - syncs db to gpui state.

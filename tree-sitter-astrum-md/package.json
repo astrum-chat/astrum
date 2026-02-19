@@ -1,0 +1,14 @@
+{
+  "name": "tree-sitter-astrum-md",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for Astrum's markdown subset",
+  "tree-sitter": [
+    {
+      "scope": "source.astrum_md",
+      "file-types": ["md"]
+    }
+  ],
+  "dependencies": {
+    "tree-sitter-cli": "^0.26.5"
+  }
+}

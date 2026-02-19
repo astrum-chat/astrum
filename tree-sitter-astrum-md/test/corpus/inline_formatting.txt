@@ -1,0 +1,104 @@
+================
+Bold closed
+================
+Hello **bold** world
+---
+(document
+  (paragraph
+    (text)
+    (bold
+      (content))
+    (text)))
+
+================
+Underline closed
+================
+Hello __underline__ world
+---
+(document
+  (paragraph
+    (text)
+    (underline
+      (content))
+    (text)))
+
+================
+Strikethrough closed
+================
+Hello ~~strike~~ world
+---
+(document
+  (paragraph
+    (text)
+    (strikethrough
+      (content))
+    (text)))
+
+================
+Code span
+================
+Hello `code` world
+---
+(document
+  (paragraph
+    (text)
+    (code_span
+      (code_content))
+    (text)))
+
+================
+All inline styles in one line
+================
+**bold** __underline__ ~~strike~~ `code`
+---
+(document
+  (paragraph
+    (bold
+      (content))
+    (text)
+    (underline
+      (content))
+    (text)
+    (strikethrough
+      (content))
+    (text)
+    (code_span
+      (code_content))))
+
+================
+Bold at start of line
+================
+**bold** text
+---
+(document
+  (paragraph
+    (bold
+      (content))
+    (text)))
+
+================
+Bold at end of line
+================
+text **bold**
+---
+(document
+  (paragraph
+    (text)
+    (bold
+      (content))))
+
+================
+Multiple bolds
+================
+**one** and **two** and **three**
+---
+(document
+  (paragraph
+    (bold
+      (content))
+    (text)
+    (bold
+      (content))
+    (text)
+    (bold
+      (content))))

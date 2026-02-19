@@ -1,0 +1,89 @@
+================
+Single star is text
+================
+A single * star
+---
+(document
+  (paragraph
+    (text)
+    (text)
+    (text)))
+
+================
+Single underscore is text
+================
+A single _ underscore
+---
+(document
+  (paragraph
+    (text)
+    (text)
+    (text)))
+
+================
+Single tilde is text
+================
+A single ~ tilde
+---
+(document
+  (paragraph
+    (text)
+    (text)
+    (text)))
+
+================
+Hash in middle of line starts heading
+================
+Not a # heading
+---
+(document
+  (paragraph
+    (text))
+  (heading1
+    (text)))
+
+================
+Empty document
+================
+
+---
+(document)
+
+================
+Only newlines is empty
+================
+
+---
+(document)
+
+================
+Bold with spaces in content
+================
+**bold with spaces**
+---
+(document
+  (paragraph
+    (bold
+      (content))))
+
+================
+Adjacent formatting
+================
+**bold**__underline__
+---
+(document
+  (paragraph
+    (bold
+      (content))
+    (underline
+      (content))))
+
+================
+Code span preserves special chars
+================
+`**not bold**`
+---
+(document
+  (paragraph
+    (code_span
+      (code_content))))

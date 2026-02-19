@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use notitia::{
     AsDatatypeKind, Datatype, DatatypeConversionError, DatatypeKind, DatatypeKindMetadata,
+    InnerFieldType,
 };
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Default)]
@@ -47,4 +48,8 @@ impl TryFrom<Datatype> for UniqueId {
     fn try_from(d: Datatype) -> Result<Self, Self::Error> {
         String::try_from(d).map(UniqueId)
     }
+}
+
+impl InnerFieldType for UniqueId {
+    type Inner = UniqueId;
 }

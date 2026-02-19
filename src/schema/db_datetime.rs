@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use notitia::{
     AsDatatypeKind, Datatype, DatatypeConversionError, DatatypeKind, DatatypeKindMetadata,
+    InnerFieldType,
 };
 
 const FORMAT: &str = "%Y-%m-%d %H:%M:%S%.f";
@@ -40,4 +41,8 @@ impl TryFrom<Datatype> for DbDateTime {
                 got: "Text",
             })
     }
+}
+
+impl InnerFieldType for DbDateTime {
+    type Inner = DbDateTime;
 }

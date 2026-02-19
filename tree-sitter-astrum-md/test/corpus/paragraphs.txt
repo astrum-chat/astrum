@@ -1,0 +1,34 @@
+================
+Simple paragraph
+================
+Hello world
+---
+(document
+  (paragraph
+    (text)))
+
+================
+Two paragraphs separated by blank line
+================
+First paragraph.
+
+Second paragraph.
+---
+(document
+  (paragraph
+    (text))
+  (paragraph
+    (text)))
+
+================
+Paragraph after heading
+================
+# Title
+
+Some text here.
+---
+(document
+  (heading1
+    (text))
+  (paragraph
+    (text)))

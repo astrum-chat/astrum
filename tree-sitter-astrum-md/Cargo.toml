@@ -1,0 +1,14 @@
+[package]
+name = "tree-sitter-astrum-md"
+version = "0.1.0"
+edition = "2024"
+build = "bindings/rust/build.rs"
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1.1"
