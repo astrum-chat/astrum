@@ -56,7 +56,6 @@ pub struct ModelSelectionRecord {
     pub model: Option<String>,
     pub parameters: Option<String>,
     pub quantization: Option<String>,
-    pub test_field: Option<String>,
 }
 
 pub mod schemas {

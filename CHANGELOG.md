@@ -1,7 +1,3 @@
-# v0.1.10
-## Test
-- Test schema snapshot workflow.
-
 # v0.1.9
 ## Features
 - Added markdown support for links.
