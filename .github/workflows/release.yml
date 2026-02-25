@@ -40,7 +40,7 @@ jobs:
 
       - name: Install notitia CLI
         run: |
-          INSTALL_CMD=$(cargo metadata --format-version 1 --no-deps | jq -r '
+          INSTALL_CMD=$(cargo metadata --format-version 1 | jq -r '
             .packages[] | select(.name == "notitia_cli") |
             if .source == null then
               "cargo install --path \(.manifest_path | split("/") | .[:-1] | join("/"))"
