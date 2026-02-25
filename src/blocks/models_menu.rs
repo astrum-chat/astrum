@@ -18,8 +18,8 @@ use smol::lock::RwLock;
 
 use anyml::models::{Model, ModelParams, ModelQuant};
 
-use schema::UniqueId;
 use crate::{Managers, managers::Provider, utils::FrontInsertMap};
+use schema::UniqueId;
 
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
 

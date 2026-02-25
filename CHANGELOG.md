@@ -2,6 +2,7 @@
 ## Features
 - Added markdown support for links.
 - Names of models are now displayed in a more readable format.
+- Decreased padding slightly on the chat input.
 
 # v0.1.8
 ## Features
