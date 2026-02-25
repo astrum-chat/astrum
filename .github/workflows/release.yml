@@ -41,9 +41,9 @@ jobs:
       - name: Install notitia CLI
         run: |
           INSTALL_CMD=$(cargo metadata --format-version 1 | jq -r '
-            .packages[] | select(.name == "notitia_cli") |
+            .packages[] | select(.name == "notitia") |
             if .source == null then
-              "cargo install --path \(.manifest_path | split("/") | .[:-1] | join("/"))"
+              "cargo install --path \(.manifest_path | split("/") | .[:-1] | join("/") | sub("/crates/notitia$"; ""))/crates/notitia_cli"
             elif (.source | startswith("git+")) then
               "cargo install --git \(.source | sub("^git\\+";"") | sub("#.*";"") | sub("\\?.*";"")) --rev \(.source | sub(".*#";"")) notitia_cli"
             else
