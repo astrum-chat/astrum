@@ -39,19 +39,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install notitia CLI
-        run: |
-          INSTALL_CMD=$(cargo metadata --format-version 1 | jq -r '
-            .packages[] | select(.name == "notitia") |
-            if .source == null then
-              "cargo install --path \(.manifest_path | split("/") | .[:-1] | join("/") | sub("/crates/notitia$"; ""))/crates/notitia_cli"
-            elif (.source | startswith("git+")) then
-              "cargo install --git \(.source | sub("^git\\+";"") | sub("#.*";"") | sub("\\?.*";"")) --rev \(.source | sub(".*#";"")) notitia_cli"
-            else
-              "cargo install notitia_cli"
-            end
-          ')
-          echo "Running: $INSTALL_CMD"
-          eval "$INSTALL_CMD"
+        run: cargo install --git https://github.com/astrum-chat/notitia notitia_cli
 
       - name: Check database migration compatibility
         run: $CARGO_HOME/bin/notitia check --crate schema
