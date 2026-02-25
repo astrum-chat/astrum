@@ -14,12 +14,12 @@ use secrecy::{ExposeSecret, SecretString};
 pub trait ProviderTrait: ChatProvider + ListModelsProvider {}
 impl<T: ChatProvider + ListModelsProvider> ProviderTrait for T {}
 
+use schema::{AstrumDb, DbDateTime, ModelSelectionRecord, ProviderRecord, UniqueId};
+
 use crate::{
     anyhttp_gpui::GpuiHttpWrapper,
     assets::AstrumLogoKind,
     blocks::models_menu::ModelsCache,
-    managers::UniqueId,
-    schema::{AstrumDb, DbDateTime, ModelSelectionRecord, ProviderRecord},
     secrets::{get_secret, remove_secret, set_secret},
     utils::FrontInsertMap,
 };
@@ -28,14 +28,27 @@ pub struct ProviderModelPair {
     pub provider_id: Entity<Option<UniqueId>>,
     pub provider_name: Entity<Option<String>>,
     pub model: Entity<Option<String>>,
+    pub parameters: Entity<Option<String>>,
+    pub quantization: Entity<Option<String>>,
 }
 
 impl ProviderModelPair {
-    pub fn read_selection(&self, cx: &App) -> (Option<UniqueId>, Option<String>, Option<String>) {
+    pub fn read_selection(
+        &self,
+        cx: &App,
+    ) -> (
+        Option<UniqueId>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) {
         (
             self.provider_id.read(cx).clone(),
             self.provider_name.read(cx).clone(),
             self.model.read(cx).clone(),
+            self.parameters.read(cx).clone(),
+            self.quantization.read(cx).clone(),
         )
     }
 }
@@ -57,11 +70,15 @@ impl<'a> ModelsManager {
                 provider_id: cx.new(|_cx| None),
                 provider_name: cx.new(|_cx| None),
                 model: cx.new(|_cx| None),
+                parameters: cx.new(|_cx| None),
+                quantization: cx.new(|_cx| None),
             },
             chat_titles_model: ProviderModelPair {
                 provider_id: cx.new(|_cx| None),
                 provider_name: cx.new(|_cx| None),
                 model: cx.new(|_cx| None),
+                parameters: cx.new(|_cx| None),
+                quantization: cx.new(|_cx| None),
             },
             models_cache: cx.new(|_cx| ModelsCache::new()),
         }
@@ -94,6 +111,8 @@ impl<'a> ModelsManager {
         provider_id: UniqueId,
         provider_name: impl Into<String>,
         model: impl Into<String>,
+        parameters: Option<String>,
+        quantization: Option<String>,
     ) {
         let provider_name = provider_name.into();
         let model = model.into();
@@ -115,12 +134,22 @@ impl<'a> ModelsManager {
             *current_model = Some(model.clone());
             cx.notify();
         });
+        cx.update_entity(&self.current_model.parameters, |current_params, cx| {
+            *current_params = parameters.clone();
+            cx.notify();
+        });
+        cx.update_entity(&self.current_model.quantization, |current_quant, cx| {
+            *current_quant = quantization.clone();
+            cx.notify();
+        });
         self.save_model_selection(
             cx,
             "current",
             Some(provider_id),
             Some(provider_name),
             Some(model),
+            parameters,
+            quantization,
         );
     }
 
@@ -203,7 +232,15 @@ impl<'a> ModelsManager {
             *model = None;
             cx.notify();
         });
-        self.save_model_selection(cx, "current", None, None, None);
+        cx.update_entity(&self.current_model.parameters, |params, cx| {
+            *params = None;
+            cx.notify();
+        });
+        cx.update_entity(&self.current_model.quantization, |quant, cx| {
+            *quant = None;
+            cx.notify();
+        });
+        self.save_model_selection(cx, "current", None, None, None, None, None);
     }
 
     pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
@@ -222,7 +259,15 @@ impl<'a> ModelsManager {
             *model = None;
             cx.notify();
         });
-        self.save_model_selection(cx, "chat_titles", None, None, None);
+        cx.update_entity(&self.chat_titles_model.parameters, |params, cx| {
+            *params = None;
+            cx.notify();
+        });
+        cx.update_entity(&self.chat_titles_model.quantization, |quant, cx| {
+            *quant = None;
+            cx.notify();
+        });
+        self.save_model_selection(cx, "chat_titles", None, None, None, None, None);
     }
 
     pub fn get_chat_titles_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
@@ -239,6 +284,8 @@ impl<'a> ModelsManager {
         provider_id: UniqueId,
         provider_name: impl Into<String>,
         model: impl Into<String>,
+        parameters: Option<String>,
+        quantization: Option<String>,
     ) {
         let provider_name = provider_name.into();
         let model = model.into();
@@ -260,12 +307,22 @@ impl<'a> ModelsManager {
             *current_model = Some(model.clone());
             cx.notify();
         });
+        cx.update_entity(&self.chat_titles_model.parameters, |current_params, cx| {
+            *current_params = parameters.clone();
+            cx.notify();
+        });
+        cx.update_entity(&self.chat_titles_model.quantization, |current_quant, cx| {
+            *current_quant = quantization.clone();
+            cx.notify();
+        });
         self.save_model_selection(
             cx,
             "chat_titles",
             Some(provider_id),
             Some(provider_name),
             Some(model),
+            parameters,
+            quantization,
         );
     }
 
@@ -280,6 +337,8 @@ impl<'a> ModelsManager {
         provider_id: Option<UniqueId>,
         provider_name: Option<String>,
         model: Option<String>,
+        parameters: Option<String>,
+        quantization: Option<String>,
     ) {
         let db = self.db().clone();
         let key = key.to_string();
@@ -300,7 +359,9 @@ impl<'a> ModelsManager {
                         .key(key)
                         .provider_id(provider_id)
                         .provider_name(provider_name)
-                        .model(model),
+                        .model(model)
+                        .parameters(parameters)
+                        .quantization(quantization),
                 ),
             )
             .execute()
@@ -368,6 +429,8 @@ impl<'a> ModelsManager {
                 Option<UniqueId>,
                 Option<String>,
                 Option<String>,
+                Option<String>,
+                Option<String>,
             )>,
             _,
         > = smol::block_on(async {
@@ -378,6 +441,8 @@ impl<'a> ModelsManager {
                         ModelSelectionRecord::PROVIDER_ID,
                         ModelSelectionRecord::PROVIDER_NAME,
                         ModelSelectionRecord::MODEL,
+                        ModelSelectionRecord::PARAMETERS,
+                        ModelSelectionRecord::QUANTIZATION,
                     ))
                     .fetch_all::<Vec<_>>(),
             )
@@ -387,7 +452,7 @@ impl<'a> ModelsManager {
 
         let Ok(rows) = result else { return };
 
-        for (key, provider_id, provider_name, model) in rows {
+        for (key, provider_id, provider_name, model, parameters, quantization) in rows {
             let provider_exists = provider_id
                 .as_ref()
                 .map(|id| self.providers.read(cx).get(id).is_some())
@@ -397,50 +462,41 @@ impl<'a> ModelsManager {
                 continue;
             }
 
-            match key.as_str() {
-                "current" => {
-                    if let Some(id) = provider_id {
-                        self.current_model.provider_id.update(cx, |pid, cx| {
-                            *pid = Some(id);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(name) = provider_name {
-                        self.current_model.provider_name.update(cx, |pname, cx| {
-                            *pname = Some(name);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(m) = model {
-                        self.current_model.model.update(cx, |model, cx| {
-                            *model = Some(m);
-                            cx.notify();
-                        });
-                    }
-                }
-                "chat_titles" => {
-                    if let Some(id) = provider_id {
-                        self.chat_titles_model.provider_id.update(cx, |pid, cx| {
-                            *pid = Some(id);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(name) = provider_name {
-                        self.chat_titles_model
-                            .provider_name
-                            .update(cx, |pname, cx| {
-                                *pname = Some(name);
-                                cx.notify();
-                            });
-                    }
-                    if let Some(m) = model {
-                        self.chat_titles_model.model.update(cx, |model, cx| {
-                            *model = Some(m);
-                            cx.notify();
-                        });
-                    }
-                }
-                _ => {}
+            let pair = match key.as_str() {
+                "current" => &self.current_model,
+                "chat_titles" => &self.chat_titles_model,
+                _ => continue,
+            };
+
+            if let Some(id) = provider_id {
+                pair.provider_id.update(cx, |pid, cx| {
+                    *pid = Some(id);
+                    cx.notify();
+                });
+            }
+            if let Some(name) = provider_name {
+                pair.provider_name.update(cx, |pname, cx| {
+                    *pname = Some(name);
+                    cx.notify();
+                });
+            }
+            if let Some(m) = model {
+                pair.model.update(cx, |model, cx| {
+                    *model = Some(m);
+                    cx.notify();
+                });
+            }
+            if let Some(p) = parameters {
+                pair.parameters.update(cx, |params, cx| {
+                    *params = Some(p);
+                    cx.notify();
+                });
+            }
+            if let Some(q) = quantization {
+                pair.quantization.update(cx, |quant, cx| {
+                    *quant = Some(q);
+                    cx.notify();
+                });
             }
         }
     }

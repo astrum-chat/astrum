@@ -1,12 +1,8 @@
-mod unique_id;
-
 use gpui::App;
 use notitia::Notitia;
-use notitia::prelude::*;
 use notitia_sqlite::SqliteAdapter;
-pub use unique_id::*;
 
-use crate::schema::AstrumDb;
+use schema::AstrumDb;
 
 mod models_manager;
 pub use models_manager::*;

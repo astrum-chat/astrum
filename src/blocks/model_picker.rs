@@ -54,12 +54,15 @@ impl ModelPicker {
                 ModelSelectionSource::Current => &managers.models.current_model,
                 ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
             };
-            let (provider_id, provider_name, model) = pair.read_selection(cx);
+            let (provider_id, provider_name, model, parameters, quantization) =
+                pair.read_selection(cx);
             match (provider_id, provider_name, model) {
                 (Some(pid), Some(pn), Some(m)) => Some(InitialModelSelection {
                     provider_id: pid,
                     provider_name: pn,
                     model_id: m,
+                    parameters,
+                    quantization,
                 }),
                 _ => None,
             }
@@ -78,7 +81,7 @@ impl ModelPicker {
         let providers_entity = managers.read_blocking().models.providers.clone();
         observe_providers_for_refresh(&providers_entity, state.clone(), managers.clone(), cx);
 
-        let (current_provider_id, _, current_model) = {
+        let (current_provider_id, _, current_model, _, _) = {
             let managers = managers.read_blocking();
             let pair = match source {
                 ModelSelectionSource::Current => &managers.models.current_model,
@@ -104,7 +107,7 @@ impl ModelPicker {
                     cx.notify();
                 });
 
-                let (current_provider_id, _, current_model) = {
+                let (current_provider_id, _, current_model, _, _) = {
                     let managers = managers.read_blocking();
                     let pair = match source {
                         ModelSelectionSource::Current => &managers.models.current_model,

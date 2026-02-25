@@ -4,6 +4,9 @@ Cargo.lock
 .env
 .env.*
 
+# db migrations cli cache.
+.notitia
+
 # MacOS file system clutter.
 ._*
 .DS_STORE

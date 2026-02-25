@@ -46,6 +46,7 @@ module.exports = grammar({
         $.italic,
         $.underline,
         $.strikethrough,
+        $.link,
         $.text,
       ),
 
@@ -82,6 +83,8 @@ module.exports = grammar({
     )),
     _strikethrough_content: (_) => token.immediate(prec(1, /([^~\n]|~[^~])+/)),
 
-    text: (_) => token(prec(-1, /[^\n*_~`#]+|[*_~#]/)),
+    link: (_) => token(prec(1, /\[[^\]\n]+\]\([^)\n]*\)?/)),
+
+    text: (_) => token(prec(-1, /[^\n*_~`#\[]+|[*_~#\[]/)),
   },
 });

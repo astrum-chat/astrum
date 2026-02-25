@@ -102,3 +102,34 @@ Multiple bolds
     (text)
     (bold
       (content))))
+
+================
+Link with text and url
+================
+Click [here](https://example.com) now
+---
+(document
+  (paragraph
+    (text)
+    (link)
+    (text)))
+
+================
+Link at start of line
+================
+[Click me](https://example.com)
+---
+(document
+  (paragraph
+    (link)))
+
+================
+Multiple links
+================
+[one](http://a.com) and [two](http://b.com)
+---
+(document
+  (paragraph
+    (link)
+    (text)
+    (link)))

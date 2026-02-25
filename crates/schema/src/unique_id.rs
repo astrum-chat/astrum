@@ -6,14 +6,14 @@ use notitia::{
 };
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, Default)]
-pub struct UniqueId(pub(crate) String);
+pub struct UniqueId(String);
 
 impl UniqueId {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self(nanoid::nanoid!())
     }
 
-    pub(crate) fn from_string(string: impl Into<String>) -> Self {
+    pub fn from_string(string: impl Into<String>) -> Self {
         Self(string.into())
     }
 }

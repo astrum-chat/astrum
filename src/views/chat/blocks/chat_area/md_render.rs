@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use gpui::{
     AbsoluteLength, App, Corners, ElementId, Entity, Font, FontStyle, FontWeight, Hsla, Pixels,
     Rgba, SharedString, Styled, TextRun, Window, px,
@@ -5,7 +7,8 @@ use gpui::{
 use gpui_tesserae::{
     ElementIdExt,
     primitives::selectable_layout::{
-        DecorationDisplay, InlineStyles, InlinedChild, SelectableLayout, SelectableLayoutState,
+        ChildClickHandler, DecorationDisplay, InlineStyles, InlinedChild, SelectableLayout,
+        SelectableLayoutState,
     },
     theme::ThemeExt,
 };
@@ -30,6 +33,7 @@ struct MdSpan {
     underline: Option<gpui::UnderlineStyle>,
     strikethrough: Option<gpui::StrikethroughStyle>,
     decoration: Option<InlineStyles>,
+    click_handler: Option<ChildClickHandler>,
 }
 
 impl InlinedChild for MdSpan {
@@ -54,6 +58,10 @@ impl InlinedChild for MdSpan {
 
     fn decoration(&self) -> Option<InlineStyles> {
         self.decoration.clone()
+    }
+
+    fn on_click(&self) -> Option<ChildClickHandler> {
+        self.click_handler.clone()
     }
 }
 
@@ -166,6 +174,7 @@ pub fn render_markdown(
     let mono_caption_size = mono_sizes.caption.to_pixels(rem);
     let mono_caption_weight = FontWeight(mono_weights.caption);
     let secondary_color: Hsla = theme.variants.active(cx).colors.text.secondary.into();
+    let link_color: Hsla = theme.variants.active(cx).colors.accent.primary.into();
 
     let line_height = line_height_def.to_pixels(paragraph_font_size.into(), rem);
     let line_height = round_px(window, line_height);
@@ -233,19 +242,15 @@ pub fn render_markdown(
 
         let (block_font_size, block_font_weight, block_color, block_mono_size, block_mono_weight) =
             if is_heading {
-                let hs = resolve_heading_style(
-                    kind,
-                    &default_sizes,
-                    &default_weights,
-                    rem,
-                );
-                let ms = resolve_heading_style(
-                    kind,
-                    &mono_sizes,
-                    &mono_weights,
-                    rem,
-                );
-                (hs.font_size, hs.font_weight, text_color_hsla, ms.font_size, ms.font_weight)
+                let hs = resolve_heading_style(kind, &default_sizes, &default_weights, rem);
+                let ms = resolve_heading_style(kind, &mono_sizes, &mono_weights, rem);
+                (
+                    hs.font_size,
+                    hs.font_weight,
+                    text_color_hsla,
+                    ms.font_size,
+                    ms.font_weight,
+                )
             } else if is_subheading {
                 (
                     caption_font_size,
@@ -287,6 +292,7 @@ pub fn render_markdown(
             block_mono_size,
             block_mono_weight,
             bg_color,
+            link_color,
         );
 
         layout = layout.children(spans);
@@ -294,6 +300,17 @@ pub fn render_markdown(
     }
 
     layout
+}
+
+/// Parse a link token `[text](url)` or `[text](url` (streaming) into (text, url).
+fn parse_link_token(raw: &str) -> Option<(&str, &str)> {
+    let rest = raw.strip_prefix('[')?;
+    let close_bracket = rest.find(']')?;
+    let text = &rest[..close_bracket];
+    let after = &rest[close_bracket + 1..];
+    let url_part = after.strip_prefix('(')?;
+    let url = url_part.strip_suffix(')').unwrap_or(url_part);
+    Some((text, url))
 }
 
 fn walk_inline_nodes(
@@ -304,20 +321,9 @@ fn walk_inline_nodes(
     mono_font_size: Pixels,
     mono_font_weight: FontWeight,
     bg_color: Hsla,
+    link_color: Hsla,
 ) -> Vec<Box<dyn InlinedChild>> {
     let mut spans: Vec<Box<dyn InlinedChild>> = Vec::new();
-
-    let recurse = |child: Node, child_ctx: &StyleContext| {
-        walk_inline_nodes(
-            child,
-            content,
-            child_ctx,
-            mono_font_family,
-            mono_font_size,
-            mono_font_weight,
-            bg_color,
-        )
-    };
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -333,20 +339,27 @@ fn walk_inline_nodes(
                         underline: ctx.underline.clone(),
                         strikethrough: ctx.strikethrough.clone(),
                         decoration: ctx.decoration.clone(),
+                        click_handler: None,
                     }));
                 }
             }
 
             "bold" => {
                 let mut styled = ctx.clone();
-                styled.font.weight = FontWeight::MEDIUM;
-                spans.extend(recurse(child, &styled));
+                styled.font.weight = FontWeight::SEMIBOLD;
+                spans.extend(walk_inline_nodes(
+                    child, content, &styled, mono_font_family, mono_font_size,
+                    mono_font_weight, bg_color, link_color,
+                ));
             }
 
             "italic" => {
                 let mut styled = ctx.clone();
                 styled.font.style = FontStyle::Italic;
-                spans.extend(recurse(child, &styled));
+                spans.extend(walk_inline_nodes(
+                    child, content, &styled, mono_font_family, mono_font_size,
+                    mono_font_weight, bg_color, link_color,
+                ));
             }
 
             "underline" => {
@@ -356,7 +369,10 @@ fn walk_inline_nodes(
                     color: Some(ctx.color),
                     wavy: false,
                 });
-                spans.extend(recurse(child, &styled));
+                spans.extend(walk_inline_nodes(
+                    child, content, &styled, mono_font_family, mono_font_size,
+                    mono_font_weight, bg_color, link_color,
+                ));
             }
 
             "strikethrough" => {
@@ -365,7 +381,10 @@ fn walk_inline_nodes(
                     thickness: px(1.),
                     color: Some(ctx.color),
                 });
-                spans.extend(recurse(child, &styled));
+                spans.extend(walk_inline_nodes(
+                    child, content, &styled, mono_font_family, mono_font_size,
+                    mono_font_weight, bg_color, link_color,
+                ));
             }
 
             "code_span" => {
@@ -382,8 +401,37 @@ fn walk_inline_nodes(
                         .padding_y(px(0.))
                         .display(DecorationDisplay::Block),
                 );
-                spans.extend(recurse(child, &styled));
+                spans.extend(walk_inline_nodes(
+                    child, content, &styled, mono_font_family, mono_font_size,
+                    mono_font_weight, bg_color, link_color,
+                ));
             }
+
+            "link" => {
+                let raw = &content[child.byte_range()];
+                if let Some((text, url)) = parse_link_token(raw) {
+                    if !text.is_empty() {
+                        let url = url.to_string();
+                        spans.push(Box::new(MdSpan {
+                            text: text.to_string(),
+                            font: ctx.font.clone(),
+                            size: ctx.size,
+                            color: link_color,
+                            underline: Some(gpui::UnderlineStyle {
+                                thickness: px(1.),
+                                color: Some(link_color),
+                                wavy: false,
+                            }),
+                            strikethrough: ctx.strikethrough.clone(),
+                            decoration: ctx.decoration.clone(),
+                            click_handler: Some(Arc::new(move |cx: &mut App| {
+                                cx.open_url(&url);
+                            })),
+                        }));
+                    }
+                }
+            }
+
             _ => {}
         }
     }

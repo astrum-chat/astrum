@@ -16,10 +16,12 @@ use gpui_transitions::WindowUseTransition;
 
 use smol::lock::RwLock;
 
+use schema::UniqueId;
+
 use crate::{
     assets::AstrumIconKind,
     blocks::models_menu::{ProviderConfigChange, refetch_provider_models},
-    managers::{Managers, Provider, UniqueId},
+    managers::{Managers, Provider},
     views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
 

@@ -1,6 +1,6 @@
 use gpui::{
-    App, Application, AsyncApp, Bounds, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions,
-    WindowBounds, WindowOptions, actions, point, prelude::*, px, size,
+    App, AsyncApp, Bounds, KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions, WindowBounds,
+    WindowOptions, actions, point, prelude::*, px, size,
 };
 use gpui_tesserae::{
     TesseraeAssets, assets,
@@ -9,13 +9,13 @@ use gpui_tesserae::{
 };
 use notitia::Database;
 use notitia_sqlite::SqliteAdapter;
+use schema::AstrumDb;
 use smol::lock::RwLock;
 use std::sync::Arc;
 
 use crate::{
     blocks::models_menu::prefetch_all_models,
     managers::{Managers, UpdateManager},
-    schema::AstrumDb,
     views::SettingsView,
 };
 
@@ -37,15 +37,13 @@ pub use utils::*;
 
 mod managers;
 
-pub mod schema;
-
 actions!(window, [TabNext, TabPrev, OpenSettings]);
 
 fn main() {
     tracing_subscriber::fmt::init();
     dotenvy::dotenv().ok();
 
-    Application::new()
+    gpui_platform::application()
         .with_quit_mode(gpui::QuitMode::LastWindowClosed)
         .with_assets(assets![AstrumAssets, TesseraeAssets])
         .run(|cx: &mut App| {

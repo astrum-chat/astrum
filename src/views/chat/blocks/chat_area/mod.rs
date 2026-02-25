@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use anyml::{ChatOptions, MessageRole, models::Message};
+use anyml::{
+    ChatOptions, MessageRole,
+    models::{Message, Model, ModelParams, ModelQuant},
+};
 use futures::future::{AbortHandle, Abortable};
 use gpui::{
     App, AsyncApp, ElementId, Entity, InteractiveElement, IntoElement, RenderOnce, SharedString,
@@ -19,12 +22,12 @@ use notitia_gpui::WindowNotitiaExt;
 use serde_json::value::RawValue;
 use smol::lock::RwLock;
 
+use schema::{AstrumDb, MessageRecord, UniqueId};
+
 use crate::{
     Managers,
     assets::AstrumIconKind,
     blocks::ModelPicker,
-    managers::UniqueId,
-    schema::{AstrumDb, MessageRecord},
 };
 
 mod existing_chat;
@@ -147,14 +150,30 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                             if managers.models.providers.read(cx).is_empty() {
                                 return "No provider exists".to_string();
                             }
-                            let provider_name =
-                                managers.models.current_model.provider_name.read(cx).clone();
-                            let model = managers.models.get_current_model(cx).cloned();
-                            match (provider_name, model) {
-                                (Some(pn), Some(m)) => {
-                                    format!("{}/{}", pn.to_lowercase(), m)
+                            let model_id = managers.models.get_current_model(cx).cloned();
+                            match model_id {
+                                Some(id) => {
+                                    let parameters = managers
+                                        .models
+                                        .current_model
+                                        .parameters
+                                        .read(cx)
+                                        .as_ref()
+                                        .map(|p| ModelParams::new(p));
+                                    let quantization = managers
+                                        .models
+                                        .current_model
+                                        .quantization
+                                        .read(cx)
+                                        .as_ref()
+                                        .map(|q| ModelQuant::new(q));
+                                    Model {
+                                        id,
+                                        parameters,
+                                        quantization,
+                                    }
+                                    .to_string()
                                 }
-                                (None, Some(m)) => m,
                                 _ => "No model selected".to_string(),
                             }
                         }),
@@ -242,8 +261,8 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
     })
     .placeholder("Type your message here...")
     .rounded(cx.get_theme().layout.corner_radii.lg)
-    .gap(px(4.))
-    .p(px(14.))
+    .gap(px(2.))
+    .p(px(12.))
     .inner_pl(px(11.))
     .inner_pr(px(11.))
     .inner_pt(px(5.))
@@ -330,6 +349,7 @@ fn spawn_title_generation(
                 }
             }
         }
+
         let _ = cx.update(|_cx| {
             let mut managers_guard = managers.write_blocking();
             managers_guard.chats.drop_mutation_queue(&chat_id);

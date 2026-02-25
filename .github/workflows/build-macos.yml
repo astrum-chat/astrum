@@ -72,6 +72,10 @@ jobs:
             target/x86_64-apple-darwin/release/astrum \
             target/aarch64-apple-darwin/release/astrum
 
+      - name: Read version from Cargo.toml
+        id: version
+        run: echo "value=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')" >> "$GITHUB_OUTPUT"
+
       - name: Create .app bundle
         run: |
           mkdir -p Astrum.app/Contents/MacOS
@@ -92,7 +96,9 @@ jobs:
             <key>CFBundleIconFile</key>
             <string>icons.icns</string>
             <key>CFBundleVersion</key>
-            <string>0.1.0</string>
+            <string>${{ steps.version.outputs.value }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${{ steps.version.outputs.value }}</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>NSHighResolutionCapable</key>

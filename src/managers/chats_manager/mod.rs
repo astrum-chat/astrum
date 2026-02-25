@@ -7,8 +7,7 @@ use notitia::Notitia;
 use notitia_sqlite::SqliteAdapter;
 use smol::channel::Sender;
 
-use crate::managers::UniqueId;
-use crate::schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord};
+use schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord, UniqueId};
 
 /// A queued mutation to be executed sequentially per message.
 enum MessageMutation {

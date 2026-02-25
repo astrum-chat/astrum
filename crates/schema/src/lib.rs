@@ -1,9 +1,10 @@
-mod db_datetime;
-pub use db_datetime::*;
-
 use notitia::prelude::*;
 
-use crate::managers::UniqueId;
+mod unique_id;
+pub use unique_id::UniqueId;
+
+mod db_datetime;
+pub use db_datetime::*;
 
 #[database]
 pub struct AstrumDb {
@@ -53,4 +54,10 @@ pub struct ModelSelectionRecord {
     pub provider_id: Option<UniqueId>,
     pub provider_name: Option<String>,
     pub model: Option<String>,
+    pub parameters: Option<String>,
+    pub quantization: Option<String>,
+}
+
+pub mod schemas {
+    pub use super::AstrumDb;
 }

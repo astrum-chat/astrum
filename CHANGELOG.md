@@ -1,3 +1,8 @@
+# v0.1.9
+## Features
+- Added markdown support for links.
+- Names of models are now displayed in a more readable format.
+
 # v0.1.8
 ## Features
 - Added rudimentary support for markdown in messages.
@@ -23,8 +28,6 @@
 
 ## Fixes
 - Scrolling an input is now slower and doesn't just near-instantly scroll to the end.
-
-## Fixes
 - Only text shows the IBeam cursor, instead of the entire bounds showing it.
 - Fixed broken position of the accent menu in the text input.
 

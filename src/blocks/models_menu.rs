@@ -16,7 +16,10 @@ use gpui_tesserae::{
 };
 use smol::lock::RwLock;
 
-use crate::{Managers, managers::Provider, managers::UniqueId, utils::FrontInsertMap};
+use anyml::models::{Model, ModelParams, ModelQuant};
+
+use schema::UniqueId;
+use crate::{Managers, managers::Provider, utils::FrontInsertMap};
 
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
 
@@ -27,10 +30,14 @@ pub struct CachedModel {
     pub provider_id: UniqueId,
     pub provider_name: String,
     pub model_id: String,
+    pub display_name: String,
+    pub parameters: Option<String>,
+    pub quantization: Option<String>,
 }
 
 struct ProviderModels {
-    models: Vec<String>,
+    /// (model_id, display_name, parameters, quantization)
+    models: Vec<(String, String, Option<String>, Option<String>)>,
     provider_name: String,
     fetched_at: Instant,
 }
@@ -63,7 +70,10 @@ impl ModelsCache {
         }
     }
 
-    pub fn get_provider_models(&self, provider_id: &UniqueId) -> Option<(&str, &[String])> {
+    pub fn get_provider_models(
+        &self,
+        provider_id: &UniqueId,
+    ) -> Option<(&str, &[(String, String, Option<String>, Option<String>)])> {
         let cached = self.per_provider.get(provider_id)?;
         if cached.fetched_at.elapsed() < Duration::from_secs(MODEL_FETCH_COOLDOWN_SECS) {
             Some((&cached.provider_name, &cached.models))
@@ -76,7 +86,7 @@ impl ModelsCache {
         &mut self,
         provider_id: UniqueId,
         provider_name: String,
-        models: Vec<String>,
+        models: Vec<(String, String, Option<String>, Option<String>)>,
     ) {
         info!(
             provider_name = %provider_name,
@@ -123,11 +133,14 @@ impl ModelsCache {
     fn rebuild_all_models(&mut self) {
         self.all_models.clear();
         for (provider_id, provider_models) in &self.per_provider {
-            for model_id in &provider_models.models {
+            for (model_id, display_name, parameters, quantization) in &provider_models.models {
                 self.all_models.push(CachedModel {
                     provider_id: provider_id.clone(),
                     provider_name: provider_models.provider_name.clone(),
                     model_id: model_id.clone(),
+                    display_name: display_name.clone(),
+                    parameters: parameters.clone(),
+                    quantization: quantization.clone(),
                 });
             }
         }
@@ -176,6 +189,8 @@ pub struct ModelSelection {
     pub provider_id: UniqueId,
     pub provider_name: String,
     pub model_id: String,
+    pub parameters: Option<String>,
+    pub quantization: Option<String>,
 }
 
 #[derive(Clone)]
@@ -185,13 +200,22 @@ pub struct ModelSelectItem {
 }
 
 impl ModelSelectItem {
-    pub fn new(provider_name: &str, model_id: String, provider_id: UniqueId) -> Self {
+    pub fn new(
+        provider_name: &str,
+        model_id: String,
+        display_name: &str,
+        provider_id: UniqueId,
+        parameters: Option<String>,
+        quantization: Option<String>,
+    ) -> Self {
         Self {
-            display_name: format!("{}/{}", provider_name.to_lowercase(), model_id).into(),
+            display_name: display_name.to_string().into(),
             selection: ModelSelection {
                 provider_id,
                 provider_name: provider_name.to_string(),
                 model_id,
+                parameters,
+                quantization,
             },
         }
     }
@@ -231,6 +255,8 @@ pub struct InitialModelSelection {
     pub provider_id: UniqueId,
     pub provider_name: String,
     pub model_id: String,
+    pub parameters: Option<String>,
+    pub quantization: Option<String>,
 }
 
 /// Creates the models select state with an empty items list.
@@ -256,10 +282,22 @@ pub fn create_models_select_state(
 
     // Add a placeholder item and select it if initial selection is provided
     if let Some(selection) = initial_selection {
+        let display_name = Model {
+            id: selection.model_id.clone(),
+            parameters: selection.parameters.as_deref().map(|p| ModelParams::new(p)),
+            quantization: selection
+                .quantization
+                .as_deref()
+                .map(|q| ModelQuant::new(q)),
+        }
+        .to_string();
         let item = ModelSelectItem::new(
             &selection.provider_name,
-            selection.model_id,
+            selection.model_id.clone(),
+            &display_name,
             selection.provider_id,
+            selection.parameters,
+            selection.quantization,
         );
         let item_name = item.name();
         state.push_item(cx, item);
@@ -299,6 +337,8 @@ pub fn create_models_select_state(
                     selection.provider_id,
                     selection.provider_name,
                     selection.model_id,
+                    selection.parameters,
+                    selection.quantization,
                 );
             }
 
@@ -332,7 +372,10 @@ pub fn populate_state_from_cache(
         let item = ModelSelectItem::new(
             &cached.provider_name,
             cached.model_id.clone(),
+            &cached.display_name,
             cached.provider_id.clone(),
+            cached.parameters.clone(),
+            cached.quantization.clone(),
         );
 
         let item_name = item.name();
@@ -488,10 +531,20 @@ fn spawn_fetch_models(
 
         match provider.inner.list_models().await {
             Ok(models) => {
-                let model_ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+                let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                    .iter()
+                    .map(|m| {
+                        (
+                            m.id.clone(),
+                            m.to_string(),
+                            m.parameters.as_ref().map(|p| p.as_str().to_string()),
+                            m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                        )
+                    })
+                    .collect();
 
                 let _ = models_cache.update(cx, |cache, _| {
-                    cache.refresh_models_for_provider(provider_id, provider_name, model_ids);
+                    cache.refresh_models_for_provider(provider_id, provider_name, model_pairs);
                 });
             }
             Err(err) => {
@@ -538,7 +591,17 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
 
             match provider.inner.list_models().await {
                 Ok(models) => {
-                    let model_ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+                    let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                        .iter()
+                        .map(|m| {
+                            (
+                                m.id.clone(),
+                                m.to_string(),
+                                m.parameters.as_ref().map(|p| p.as_str().to_string()),
+                                m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                            )
+                        })
+                        .collect();
                     let provider_name_clone = provider_name.clone();
                     let provider_id_clone = provider_id.clone();
 
@@ -546,7 +609,7 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
-                            model_ids,
+                            model_pairs,
                         );
                     });
                 }
@@ -571,12 +634,22 @@ fn push_model_item(
     state: &Arc<SelectState<ModelSelection, ModelSelectItem>>,
     provider_name: &str,
     model_id: &str,
+    display_name: &str,
     provider_id: &UniqueId,
+    parameters: Option<String>,
+    quantization: Option<String>,
     current_provider_id: Option<&UniqueId>,
     current_model: Option<&String>,
     cx: &mut App,
 ) {
-    let item = ModelSelectItem::new(provider_name, model_id.to_string(), provider_id.clone());
+    let item = ModelSelectItem::new(
+        provider_name,
+        model_id.to_string(),
+        display_name,
+        provider_id.clone(),
+        parameters,
+        quantization,
+    );
     let item_name = item.name();
     state.push_item(cx, item);
 
@@ -619,7 +692,7 @@ pub fn fetch_all_models_with_source(
             ModelSelectionSource::Current => &managers.models.current_model,
             ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
         };
-        let (provider_id, _, model) = pair.read_selection(cx);
+        let (provider_id, _, model, _, _) = pair.read_selection(cx);
         (provider_id, model)
     };
 
@@ -644,7 +717,7 @@ pub fn fetch_all_models_with_source(
             });
 
             if !is_stale {
-                let cached_models: Option<Vec<String>> =
+                let cached_models: Option<Vec<(String, String, Option<String>, Option<String>)>> =
                     cx.read_entity(&models_cache, |cache, _| {
                         cache
                             .get_provider_models(&provider_id)
@@ -653,12 +726,15 @@ pub fn fetch_all_models_with_source(
 
                 if let Some(models) = cached_models {
                     let _ = cx.update(|cx| {
-                        for model_id in &models {
+                        for (model_id, display_name, parameters, quantization) in &models {
                             push_model_item(
                                 &state,
                                 &provider_name,
                                 model_id,
+                                display_name,
                                 &provider_id,
+                                parameters.clone(),
+                                quantization.clone(),
                                 current_provider_id.as_ref(),
                                 current_model.as_ref(),
                                 cx,
@@ -671,7 +747,17 @@ pub fn fetch_all_models_with_source(
 
             match provider.inner.list_models().await {
                 Ok(models) => {
-                    let model_ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
+                    let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                        .iter()
+                        .map(|m| {
+                            (
+                                m.id.clone(),
+                                m.to_string(),
+                                m.parameters.as_ref().map(|p| p.as_str().to_string()),
+                                m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                            )
+                        })
+                        .collect();
                     let provider_name_clone = provider_name.clone();
                     let provider_id_clone = provider_id.clone();
 
@@ -679,7 +765,7 @@ pub fn fetch_all_models_with_source(
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
-                            model_ids,
+                            model_pairs,
                         );
                     });
 
@@ -689,7 +775,10 @@ pub fn fetch_all_models_with_source(
                                 &state,
                                 &provider_name,
                                 &model.id,
+                                &model.to_string(),
                                 &provider_id,
+                                model.parameters.as_ref().map(|p| p.as_str().to_string()),
+                                model.quantization.as_ref().map(|q| q.as_str().to_string()),
                                 current_provider_id.as_ref(),
                                 current_model.as_ref(),
                                 cx,

@@ -45,3 +45,13 @@ Some **bold text streaming
     (text)
     (bold
       (content))))
+
+================
+Unclosed link url (streaming)
+================
+Click [here](https://example.com
+---
+(document
+  (paragraph
+    (text)
+    (link)))

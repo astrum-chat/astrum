@@ -17,12 +17,12 @@ use notitia::prelude::*;
 use notitia_gpui::{DbEntity, WindowNotitiaExt};
 use smol::lock::RwLock;
 
+use schema::{AstrumDb, ChatRecord, UniqueId};
+
 use crate::{
     OpenSettings, PixelsExt,
     assets::AstrumIconKind,
     managers::Managers,
-    managers::UniqueId,
-    schema::{AstrumDb, ChatRecord},
     utils::search::filter_by_relevance,
 };
 
@@ -67,7 +67,6 @@ impl RenderOnce for Sidebar {
             .colors
             .background
             .secondary;
-        let lg_size = cx.get_theme().layout.size.lg;
 
         let search_chats_input_state = window.use_keyed_state(
             self.id.with_suffix("state:search_chats"),
@@ -220,7 +219,7 @@ impl RenderOnce for Sidebar {
             uniform_list(
                 self.id.with_suffix("threads_section"),
                 visible_chats.len(),
-                move |range, _window, cx| {
+                move |range, _window, _cx| {
                     range
                         .map(|ix| {
                             let (chat_id, title) = &visible_chats[ix];

@@ -9,7 +9,8 @@ use notitia::PrimaryKey;
 use std::collections::BTreeMap;
 
 use super::md_render::render_markdown;
-use crate::{RgbaExt, managers::UniqueId};
+use crate::RgbaExt;
+use schema::UniqueId;
 
 pub fn render_existing_chat(
     base_id: &ElementId,

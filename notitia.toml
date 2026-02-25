@@ -1,0 +1,2 @@
+databases = ["AstrumDb"]
+snapshots_dir = "schema_snapshots"

@@ -3,20 +3,35 @@ name = "astrum"
 version = "0.1.8"
 edition = "2024"
 
-[dependencies]
-gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
-anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
-notitia = { git = "https://github.com/astrum-chat/notitia" }
-notitia_gpui = { git = "https://github.com/astrum-chat/notitia" }
-notitia_sqlite = { git = "https://github.com/astrum-chat/notitia", default-features = false, features = ["runtime-async-std-native-tls"] }
+[workspace]
+members = [".", "crates/schema", "tree-sitter-astrum-md"]
+
+[workspace.dependencies]
+# gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
+# anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
+# notitia = { git = "https://github.com/astrum-chat/notitia" }
+# notitia_gpui = { git = "https://github.com/astrum-chat/notitia" }
+# notitia_sqlite = { git = "https://github.com/astrum-chat/notitia", default-features = false, features = ["runtime-async-std-native-tls"] }
 # Local development.
-# gpui_tesserae = { path = "../gpui_tesserae" }
-# anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
-# notitia = { path = "../notitia/crates/notitia" }
-# notitia_gpui = { path = "../notitia/crates/notitia_gpui" }
-# notitia_sqlite = { path = "../notitia/crates/notitia_sqlite", default-features = false, features = ["runtime-async-std-native-tls"] }
+gpui_tesserae = { path = "../gpui_tesserae" }
+anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
+notitia = { path = "../notitia/crates/notitia" }
+notitia_gpui = { path = "../notitia/crates/notitia_gpui" }
+notitia_sqlite = { path = "../notitia/crates/notitia_sqlite", default-features = false, features = ["runtime-async-std-native-tls"] }
+notitia_cli = { path = "../notitia/crates/notitia_cli" }
+schema = { path = "./crates/schema" }
+
+[dependencies]
+gpui_tesserae.workspace = true
+anyml.workspace = true
+notitia.workspace = true
+notitia_gpui.workspace = true
+notitia_sqlite.workspace = true
+notitia_cli.workspace = true
+schema.workspace = true
 
 gpui = { version = "0.2.2", default-features = false }
+gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit"] }
 gpui_squircle = { git = "https://github.com/astrum-chat/gpui_squircle" }
 gpui_transitions = "0.1.5"
 rust-embed = { version = "8.9.0", features = ["include-exclude"] }
@@ -30,18 +45,14 @@ bytes = "1.11.0"
 futures = "0.3.31"
 anyhow = "1.0.100"
 http-body = "1.0.1"
-
-nanoid = "0.4.0"
 indexmap = "2.12.1"
 dirs = "6.0.0"
-
 reqwest = { version = "0.12.24", features = ["stream"] }
 tokio = { version = "1.48.0", features = ["full"] }
 smol = "2.0.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.145", features = ["raw_value"] }
 thiserror = "2.0.17"
-chrono = "0.4.42"
 phf = { version = "0.13.1", features = ["macros"] }
 strsim = "0.11.1"
 rayon = "1.10"
@@ -74,20 +85,7 @@ self_update = { version = "0.42", features = ["archive-tar", "compression-flate2
 core-text = "=21.0.0"
 
 [patch.crates-io]
-gpui = { git = "https://github.com/zed-industries/zed", rev = "037add0" }
-
-[workspace]
-members = [".", "tree-sitter-astrum-md"]
+gpui = { git = "https://github.com/zed-industries/zed" }
 
 [profile.dev.package."*"]
 opt-level = 3
-
-[package.metadata.bundle]
-name = "Astrum"
-identifier = "chat.astrum.astrum"
-icon = ["assets/bundle/icons.icns"]
-resources = []
-version = "0.0.0"
-short_description = ""
-long_description = ""
-osx_url_schemes = ["chat.astrum.astrum"]

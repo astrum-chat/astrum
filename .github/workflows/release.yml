@@ -7,7 +7,7 @@ on:
 jobs:
   preflight:
     name: Preflight Checks
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +34,27 @@ jobs:
             echo "::error::No changelog entry found for $TAG in CHANGELOG.md. Add a '# $TAG' section before releasing."
             exit 1
           fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install notitia CLI
+        run: |
+          INSTALL_CMD=$(cargo metadata --format-version 1 --no-deps | jq -r '
+            .packages[] | select(.name == "notitia_cli") |
+            if .source == null then
+              "cargo install --path \(.manifest_path | split("/") | .[:-1] | join("/"))"
+            elif (.source | startswith("git+")) then
+              "cargo install --git \(.source | sub("^git\\+";"") | sub("#.*";"") | sub("\\?.*";"")) --rev \(.source | sub(".*#";"")) notitia_cli"
+            else
+              "cargo install notitia_cli"
+            end
+          ')
+          echo "Running: $INSTALL_CMD"
+          eval "$INSTALL_CMD"
+
+      - name: Check database migration compatibility
+        run: notitia check --crate schema
 
   create-release:
     name: Create Release

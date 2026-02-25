@@ -87,3 +87,14 @@ Code span preserves special chars
   (paragraph
     (code_span
       (code_content))))
+
+================
+Stray bracket is text
+================
+A [ stray bracket
+---
+(document
+  (paragraph
+    (text)
+    (text)
+    (text)))

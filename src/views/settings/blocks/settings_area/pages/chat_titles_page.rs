@@ -114,6 +114,8 @@ fn render_model_picker(
                         selection.provider_id,
                         selection.provider_name,
                         selection.model_id,
+                        selection.parameters,
+                        selection.quantization,
                     );
                 }
             }
