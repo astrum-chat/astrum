@@ -54,7 +54,7 @@ jobs:
           eval "$INSTALL_CMD"
 
       - name: Check database migration compatibility
-        run: notitia check --crate schema
+        run: $CARGO_HOME/bin/notitia check --crate schema
 
   create-release:
     name: Create Release
