@@ -13,7 +13,7 @@
 <br>
 
 <p align="center">
-  <img src="assets/readme/demo.png" alt="Astrum Demo" width="600">
+  <img src="assets/readme/demo.png" alt="Astrum Demo" width="800">
 </p>
 
 - - -
