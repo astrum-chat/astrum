@@ -8,10 +8,11 @@ use sha2::{Digest, Sha256};
 use tracing::{debug, error, info};
 
 use gpui::{
-    App, AsyncApp, ElementId, Entity, Hsla, IntoElement, SharedString, Window, div, prelude::*,
+    App, AsyncApp, ElementId, Entity, Hsla, IntoElement, SharedString, Window, div, prelude::*, px,
 };
 use gpui_tesserae::{
     ElementIdExt,
+    components::Icon,
     components::select::{SelectItem, SelectItemsMap, SelectState},
 };
 use smol::lock::RwLock;
@@ -33,12 +34,14 @@ pub struct CachedModel {
     pub display_name: String,
     pub parameters: Option<String>,
     pub quantization: Option<String>,
+    pub icon_path: SharedString,
 }
 
 struct ProviderModels {
     /// (model_id, display_name, parameters, quantization)
     models: Vec<(String, String, Option<String>, Option<String>)>,
     provider_name: String,
+    icon_path: SharedString,
     fetched_at: Instant,
 }
 
@@ -86,6 +89,7 @@ impl ModelsCache {
         &mut self,
         provider_id: UniqueId,
         provider_name: String,
+        icon_path: SharedString,
         models: Vec<(String, String, Option<String>, Option<String>)>,
     ) {
         info!(
@@ -99,6 +103,7 @@ impl ModelsCache {
             ProviderModels {
                 models,
                 provider_name,
+                icon_path,
                 fetched_at: Instant::now(),
             },
         );
@@ -141,6 +146,7 @@ impl ModelsCache {
                     display_name: display_name.clone(),
                     parameters: parameters.clone(),
                     quantization: quantization.clone(),
+                    icon_path: provider_models.icon_path.clone(),
                 });
             }
         }
@@ -196,6 +202,7 @@ pub struct ModelSelection {
 #[derive(Clone)]
 pub struct ModelSelectItem {
     display_name: SharedString,
+    icon_path: SharedString,
     selection: ModelSelection,
 }
 
@@ -207,9 +214,11 @@ impl ModelSelectItem {
         provider_id: UniqueId,
         parameters: Option<String>,
         quantization: Option<String>,
+        icon_path: SharedString,
     ) -> Self {
         Self {
             display_name: display_name.to_string().into(),
+            icon_path,
             selection: ModelSelection {
                 provider_id,
                 provider_name: provider_name.to_string(),
@@ -235,9 +244,23 @@ impl SelectItem for ModelSelectItem {
     fn display(&self, _window: &mut Window, _cx: &App, text_color: Hsla) -> impl IntoElement {
         div()
             .w_full()
-            .text_ellipsis()
-            .text_color(text_color)
-            .child(self.name())
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                Icon::new(self.icon_path.clone())
+                    .size(px(14.))
+                    .color(text_color)
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .text_ellipsis()
+                    .text_color(text_color)
+                    .child(self.name()),
+            )
     }
 }
 
@@ -257,6 +280,7 @@ pub struct InitialModelSelection {
     pub model_id: String,
     pub parameters: Option<String>,
     pub quantization: Option<String>,
+    pub icon_path: SharedString,
 }
 
 /// Creates the models select state with an empty items list.
@@ -298,6 +322,7 @@ pub fn create_models_select_state(
             selection.provider_id,
             selection.parameters,
             selection.quantization,
+            selection.icon_path,
         );
         let item_name = item.name();
         state.push_item(cx, item);
@@ -376,6 +401,7 @@ pub fn populate_state_from_cache(
             cached.provider_id.clone(),
             cached.parameters.clone(),
             cached.quantization.clone(),
+            cached.icon_path.clone(),
         );
 
         let item_name = item.name();
@@ -522,6 +548,8 @@ fn spawn_fetch_models(
 
         let provider_name: String =
             cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
+        let icon_path: SharedString =
+            cx.read_entity(&provider.icon, |icon: &SharedString, _| icon.clone());
 
         debug!(
             provider_name = %provider_name,
@@ -544,7 +572,12 @@ fn spawn_fetch_models(
                     .collect();
 
                 let _ = models_cache.update(cx, |cache, _| {
-                    cache.refresh_models_for_provider(provider_id, provider_name, model_pairs);
+                    cache.refresh_models_for_provider(
+                        provider_id,
+                        provider_name,
+                        icon_path,
+                        model_pairs,
+                    );
                 });
             }
             Err(err) => {
@@ -588,6 +621,8 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
         for (provider_id, provider) in providers_info {
             let provider_name: String =
                 cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
+            let icon_path: SharedString =
+                cx.read_entity(&provider.icon, |icon: &SharedString, _| icon.clone());
 
             match provider.inner.list_models().await {
                 Ok(models) => {
@@ -604,11 +639,13 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
                         .collect();
                     let provider_name_clone = provider_name.clone();
                     let provider_id_clone = provider_id.clone();
+                    let icon_path_clone = icon_path.clone();
 
                     let _ = models_cache.update(cx, |cache, _| {
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
+                            icon_path_clone,
                             model_pairs,
                         );
                     });
@@ -638,6 +675,7 @@ fn push_model_item(
     provider_id: &UniqueId,
     parameters: Option<String>,
     quantization: Option<String>,
+    icon_path: SharedString,
     current_provider_id: Option<&UniqueId>,
     current_model: Option<&String>,
     cx: &mut App,
@@ -649,6 +687,7 @@ fn push_model_item(
         provider_id.clone(),
         parameters,
         quantization,
+        icon_path,
     );
     let item_name = item.name();
     state.push_item(cx, item);
@@ -711,6 +750,8 @@ pub fn fetch_all_models_with_source(
         for (provider_id, provider) in providers_info {
             let provider_name: String =
                 cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
+            let icon_path: SharedString =
+                cx.read_entity(&provider.icon, |icon: &SharedString, _| icon.clone());
 
             let is_stale = cx.read_entity(&models_cache, |cache, _| {
                 cache.is_provider_stale(&provider_id)
@@ -725,6 +766,7 @@ pub fn fetch_all_models_with_source(
                     });
 
                 if let Some(models) = cached_models {
+                    let icon_path = icon_path.clone();
                     let _ = cx.update(|cx| {
                         for (model_id, display_name, parameters, quantization) in &models {
                             push_model_item(
@@ -735,6 +777,7 @@ pub fn fetch_all_models_with_source(
                                 &provider_id,
                                 parameters.clone(),
                                 quantization.clone(),
+                                icon_path.clone(),
                                 current_provider_id.as_ref(),
                                 current_model.as_ref(),
                                 cx,
@@ -760,11 +803,13 @@ pub fn fetch_all_models_with_source(
                         .collect();
                     let provider_name_clone = provider_name.clone();
                     let provider_id_clone = provider_id.clone();
+                    let icon_path_clone = icon_path.clone();
 
                     let _ = models_cache.update(cx, |cache, _| {
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
+                            icon_path_clone,
                             model_pairs,
                         );
                     });
@@ -779,6 +824,7 @@ pub fn fetch_all_models_with_source(
                                 &provider_id,
                                 model.parameters.as_ref().map(|p| p.as_str().to_string()),
                                 model.quantization.as_ref().map(|q| q.as_str().to_string()),
+                                icon_path.clone(),
                                 current_provider_id.as_ref(),
                                 current_model.as_ref(),
                                 cx,

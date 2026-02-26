@@ -35,14 +35,13 @@ pub struct MessageRecord {
     pub edited_at: DbDateTime,
 }
 
-#[record]
+#[record(removed_fields(icon))]
 pub struct ProviderRecord {
     #[db(primary_key)]
     pub id: UniqueId,
     pub kind: String,
     pub name: String,
     pub url: Option<String>,
-    pub icon: Option<String>,
     pub created_at: Option<DbDateTime>,
     pub edited_at: Option<DbDateTime>,
 }

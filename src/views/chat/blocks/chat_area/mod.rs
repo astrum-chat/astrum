@@ -133,6 +133,14 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         .evaluate(window, cx)
         .value();
 
+    let current_provider_icon: Option<SharedString> = {
+        let managers = elem.managers.read_blocking();
+        managers
+            .models
+            .get_current_provider(cx)
+            .map(|p| p.icon.read(cx).clone())
+    };
+
     let chat_box_left_items = div()
         .max_w_full()
         .child(deferred(
@@ -141,6 +149,13 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 .max_w(relative(1.))
                 .variant(ToggleVariant::Secondary)
                 .disabled(picker.has_no_providers)
+                .when_some(current_provider_icon, |this, icon_path| {
+                    this.child_left(
+                        Icon::new(icon_path)
+                            .size(px(14.))
+                            .color(primary_text_color),
+                    )
+                })
                 .text(
                     models_state_for_toggle
                         .get_selected_item_name(cx)

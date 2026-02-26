@@ -163,7 +163,7 @@ impl RenderOnce for ProviderSettings {
             .items_center()
             .gap(padding)
             .child(
-                img(self.provider.icon.read(cx).clone())
+                img(self.provider.logo.read(cx).clone())
                     .min_w(icon_size)
                     .min_h(icon_size)
                     .size(icon_size),

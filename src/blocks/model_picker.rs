@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{App, ElementId, Entity, Window};
+use gpui::{App, ElementId, Entity, SharedString, Window};
 use gpui_tesserae::components::select::SelectState;
 use smol::lock::RwLock;
 
@@ -57,13 +57,23 @@ impl ModelPicker {
             let (provider_id, provider_name, model, parameters, quantization) =
                 pair.read_selection(cx);
             match (provider_id, provider_name, model) {
-                (Some(pid), Some(pn), Some(m)) => Some(InitialModelSelection {
-                    provider_id: pid,
-                    provider_name: pn,
-                    model_id: m,
-                    parameters,
-                    quantization,
-                }),
+                (Some(pid), Some(pn), Some(m)) => {
+                    let icon_path: SharedString = managers
+                        .models
+                        .providers
+                        .read(cx)
+                        .get(&pid)
+                        .map(|p| p.icon.read(cx).clone())
+                        .unwrap_or_default();
+                    Some(InitialModelSelection {
+                        provider_id: pid,
+                        provider_name: pn,
+                        model_id: m,
+                        parameters,
+                        quantization,
+                        icon_path,
+                    })
+                }
                 _ => None,
             }
         };

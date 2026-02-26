@@ -8,7 +8,7 @@ use rust_embed::RustEmbed;
 #[derive(RustEmbed)]
 #[folder = "assets/app"]
 #[include = "icons/*"]
-#[include = "logos/*"]
+#[include = "providers/*"]
 #[exclude = "*.DS_Store"]
 pub struct AstrumAssets;
 
@@ -84,30 +84,61 @@ impl Into<SharedString> for &AstrumIconKind {
 
 #[derive(Assoc)]
 #[func(pub const fn path(&self) -> &'static str)]
-pub enum AstrumLogoKind {
-    #[assoc(path = "logos/providers/anthropic.svg")]
+pub enum AstrumProviderLogoKind {
+    #[assoc(path = "providers/anthropic/logo.svg")]
     Anthropic,
 
-    #[assoc(path = "logos/providers/gemini.svg")]
+    #[assoc(path = "providers/gemini/logo.svg")]
     Gemini,
 
-    #[assoc(path = "logos/providers/ollama.svg")]
+    #[assoc(path = "providers/ollama/logo.svg")]
     Ollama,
 
-    #[assoc(path = "logos/providers/openai.svg")]
+    #[assoc(path = "providers/openai/logo.svg")]
     OpenAi,
 
-    #[assoc(path = "logos/providers/xai.svg")]
+    #[assoc(path = "providers/xai/logo.svg")]
     Xai,
 }
 
-impl Into<SharedString> for AstrumLogoKind {
+impl Into<SharedString> for AstrumProviderLogoKind {
     fn into(self) -> SharedString {
         self.path().into()
     }
 }
 
-impl Into<SharedString> for &AstrumLogoKind {
+impl Into<SharedString> for &AstrumProviderLogoKind {
+    fn into(self) -> SharedString {
+        self.path().into()
+    }
+}
+
+#[derive(Assoc)]
+#[func(pub const fn path(&self) -> &'static str)]
+pub enum AstrumProviderIconKind {
+    #[assoc(path = "providers/anthropic/icon.svg")]
+    Anthropic,
+
+    #[assoc(path = "providers/gemini/icon.svg")]
+    Gemini,
+
+    #[assoc(path = "providers/ollama/icon.svg")]
+    Ollama,
+
+    #[assoc(path = "providers/openai/icon.svg")]
+    OpenAi,
+
+    #[assoc(path = "providers/xai/icon.svg")]
+    Xai,
+}
+
+impl Into<SharedString> for AstrumProviderIconKind {
+    fn into(self) -> SharedString {
+        self.path().into()
+    }
+}
+
+impl Into<SharedString> for &AstrumProviderIconKind {
     fn into(self) -> SharedString {
         self.path().into()
     }

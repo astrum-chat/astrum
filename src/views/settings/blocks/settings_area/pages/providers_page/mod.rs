@@ -68,14 +68,12 @@ impl RenderOnce for ProvidersPage {
 
             let name = kind.default_name();
             let url = kind.default_url();
-            let icon = kind.default_icon();
 
             let provider_id = managers.write_arc_blocking().models.new_provider(
                 cx,
                 kind,
                 name,
                 url,
-                Some(icon.to_string()),
                 None,
             );
 

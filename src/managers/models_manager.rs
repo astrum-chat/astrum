@@ -18,7 +18,7 @@ use schema::{AstrumDb, DbDateTime, ModelSelectionRecord, ProviderRecord, UniqueI
 
 use crate::{
     anyhttp_gpui::GpuiHttpWrapper,
-    assets::AstrumLogoKind,
+    assets::{AstrumProviderIconKind, AstrumProviderLogoKind},
     blocks::models_menu::ModelsCache,
     secrets::{get_secret, remove_secret, set_secret},
     utils::FrontInsertMap,
@@ -163,7 +163,6 @@ impl<'a> ModelsManager {
         kind: ProviderKind,
         name: impl Into<String>,
         url: impl Into<String>,
-        icon: Option<String>,
         api_key: Option<SecretString>,
     ) -> UniqueId {
         let provider_id = UniqueId::new();
@@ -181,7 +180,6 @@ impl<'a> ModelsManager {
         let kind_str = kind.as_str().to_string();
         let name_clone = name.clone();
         let url_clone = url.clone();
-        let icon_clone = icon.clone();
         cx.spawn(async move |_cx| {
             db.mutate(
                 AstrumDb::PROVIDERS.insert(
@@ -190,7 +188,6 @@ impl<'a> ModelsManager {
                         .kind(kind_str)
                         .name(name_clone)
                         .url(url_clone)
-                        .icon(icon_clone)
                         .created_at(now.clone())
                         .edited_at(now),
                 ),
@@ -202,15 +199,7 @@ impl<'a> ModelsManager {
         .detach();
 
         let http_client = GpuiHttpWrapper::new(cx.http_client());
-        self.init_provider(
-            cx,
-            &provider_id,
-            &kind,
-            name,
-            url,
-            icon.unwrap_or_else(|| kind.default_icon().to_string()),
-            http_client,
-        );
+        self.init_provider(cx, &provider_id, &kind, name, url, http_client);
 
         provider_id
     }
@@ -383,7 +372,6 @@ impl<'a> ModelsManager {
                     String,
                     String,
                     Option<String>,
-                    Option<String>,
                 ),
             >,
             _,
@@ -395,7 +383,6 @@ impl<'a> ModelsManager {
                         ProviderRecord::KIND,
                         ProviderRecord::NAME,
                         ProviderRecord::URL,
-                        ProviderRecord::ICON,
                     ))
                     .order_by(ProviderRecord::CREATED_AT, OrderDirection::Asc)
                     .fetch_all::<BTreeMap<_, _>>(),
@@ -405,7 +392,7 @@ impl<'a> ModelsManager {
         });
 
         if let Ok(rows) = result {
-            for (_order, (provider_id, kind_str, name, url, icon)) in rows {
+            for (_order, (provider_id, kind_str, name, url)) in rows {
                 let kind = ProviderKind::from_str(&kind_str);
                 let http_client = GpuiHttpWrapper::new(cx.http_client());
                 self.init_provider(
@@ -414,7 +401,6 @@ impl<'a> ModelsManager {
                     &kind,
                     name,
                     url.unwrap_or_else(|| kind.default_url().to_string()),
-                    icon.unwrap_or_else(|| kind.default_icon().to_string()),
                     http_client,
                 );
             }
@@ -530,14 +516,16 @@ impl<'a> ModelsManager {
         kind: &ProviderKind,
         name: String,
         url: String,
-        icon: String,
         http_client: GpuiHttpWrapper,
     ) -> Option<()> {
         let inner =
             Self::create_provider_client(kind, provider_id, &name, url.clone(), http_client);
 
+        let icon = kind.default_icon().to_string();
+        let logo = kind.default_logo().to_string();
+
         self.providers.update(cx, |providers, cx| {
-            let provider = Arc::new(Provider::new(cx, inner, name, url, icon));
+            let provider = Arc::new(Provider::new(cx, inner, name, url, icon, logo));
             providers.insert_front(provider_id.clone(), provider);
             cx.notify();
         });
@@ -572,14 +560,16 @@ impl<'a> ModelsManager {
 
         let name = provider.name.read(cx).to_string();
         let url = provider.url.read(cx).to_string();
-        let icon = provider.icon.read(cx).to_string();
 
         let http_client = GpuiHttpWrapper::new(cx.http_client());
         let inner =
             Self::create_provider_client(&kind, provider_id, &name, url.clone(), http_client);
 
+        let icon = kind.default_icon().to_string();
+        let logo = kind.default_logo().to_string();
+
         self.providers.update(cx, |providers, cx| {
-            let new_provider = Arc::new(Provider::new(cx, inner, name, url, icon));
+            let new_provider = Arc::new(Provider::new(cx, inner, name, url, icon, logo));
             providers.insert(provider_id.clone(), new_provider);
             cx.notify();
         });
@@ -692,23 +682,27 @@ impl<'a> ModelsManager {
 #[func(pub fn default_name(&self) -> SharedString)]
 #[func(pub fn default_url(&self) -> SharedString)]
 #[func(pub fn default_icon(&self) -> SharedString)]
+#[func(pub fn default_logo(&self) -> SharedString)]
 pub enum ProviderKind {
     #[assoc(as_str = "ollama")]
     #[assoc(default_name = "Ollama".into())]
     #[assoc(default_url = "http://localhost:11434".into())]
-    #[assoc(default_icon = AstrumLogoKind::Ollama.into())]
+    #[assoc(default_icon = AstrumProviderIconKind::Ollama.into())]
+    #[assoc(default_logo = AstrumProviderLogoKind::Ollama.into())]
     Ollama,
 
     #[assoc(as_str = "anthropic")]
     #[assoc(default_name = "Anthropic".into())]
     #[assoc(default_url = "https://api.anthropic.com".into())]
-    #[assoc(default_icon = AstrumLogoKind::Anthropic.into())]
+    #[assoc(default_icon = AstrumProviderIconKind::Anthropic.into())]
+    #[assoc(default_logo = AstrumProviderLogoKind::Anthropic.into())]
     Anthropic,
 
     #[assoc(as_str = "openai")]
     #[assoc(default_name = "OpenAI".into())]
     #[assoc(default_url = "https://api.openai.com".into())]
-    #[assoc(default_icon = AstrumLogoKind::OpenAi.into())]
+    #[assoc(default_icon = AstrumProviderIconKind::OpenAi.into())]
+    #[assoc(default_logo = AstrumProviderLogoKind::OpenAi.into())]
     OpenAi,
 }
 
@@ -729,6 +723,7 @@ pub struct Provider {
     pub name: Entity<SharedString>,
     pub url: Entity<SharedString>,
     pub icon: Entity<SharedString>,
+    pub logo: Entity<SharedString>,
 }
 
 impl Provider {
@@ -738,12 +733,14 @@ impl Provider {
         name: impl Into<SharedString>,
         url: impl Into<SharedString>,
         icon: impl Into<SharedString>,
+        logo: impl Into<SharedString>,
     ) -> Self {
         Self {
             inner,
             name: cx.new(|_cx| name.into()),
             url: cx.new(|_cx| url.into()),
             icon: cx.new(|_cx| icon.into()),
+            logo: cx.new(|_cx| logo.into()),
         }
     }
 }
