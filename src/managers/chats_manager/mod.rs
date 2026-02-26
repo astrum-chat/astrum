@@ -203,6 +203,36 @@ impl ChatsManager {
         });
     }
 
+    /// Delete a chat and all its messages (cascade).
+    pub fn delete_chat(&mut self, cx: &mut App, chat_id: UniqueId) {
+        // If deleting the current chat, cancel any active stream and clear selection
+        if self.current_chat_id.read(cx).as_ref() == Some(&chat_id) {
+            if *self.is_streaming.read(cx) {
+                self.cancel_streaming(cx);
+            }
+            self.current_chat_id.update(cx, |id, cx| {
+                *id = None;
+                cx.notify();
+            });
+        }
+
+        self.drop_mutation_queue(&chat_id);
+
+        // Async delete from DB (messages cascade-delete via schema)
+        let db = self.db().clone();
+        cx.spawn(async move |_cx| {
+            db.mutate(
+                AstrumDb::CHATS
+                    .delete()
+                    .filter(ChatRecord::ID.eq(chat_id)),
+            )
+            .execute()
+            .await
+            .unwrap();
+        })
+        .detach();
+    }
+
     pub fn set_title(&mut self, cx: &mut App, chat_id: &UniqueId, title: impl Into<String>) {
         let queue = self.queue_for(chat_id, cx);
         let _ = queue.send_blocking(MessageMutation::SetTitle {

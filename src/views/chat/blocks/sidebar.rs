@@ -20,9 +20,7 @@ use smol::lock::RwLock;
 use schema::{AstrumDb, ChatRecord, UniqueId};
 
 use crate::{
-    OpenSettings, PixelsExt,
-    assets::AstrumIconKind,
-    managers::Managers,
+    OpenSettings, PixelsExt, assets::AstrumIconKind, managers::Managers,
     utils::search::filter_by_relevance,
 };
 
@@ -215,6 +213,9 @@ impl RenderOnce for Sidebar {
             let current_id = current_chat_id.clone();
             let current_chat_id_state = current_chat_id_state.clone();
             let list_id = self.id.clone();
+            let managers = self.managers.clone();
+
+            let md_corner_radii = cx.get_theme().layout.corner_radii.md;
 
             uniform_list(
                 self.id.with_suffix("threads_section"),
@@ -227,6 +228,32 @@ impl RenderOnce for Sidebar {
                             let current_chat_id_state = current_chat_id_state.clone();
                             let chat_id_owned = chat_id.clone();
 
+                            let delete_chat_id = chat_id.clone();
+                            let managers = managers.clone();
+                            let delete_button = div()
+                                .h_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(gpui::yellow())
+                                .child(
+                                    Button::new(
+                                        list_id.with_suffix(format!("delete_thread_{}", chat_id)),
+                                    )
+                                    .variant(ButtonVariant::DestructiveGhost)
+                                    .icon(AstrumIconKind::Trash)
+                                    .p(px(6.))
+                                    .rounded(md_corner_radii - px(3.))
+                                    .on_click(
+                                        move |_event, _window, cx| {
+                                            managers
+                                                .write_arc_blocking()
+                                                .chats
+                                                .delete_chat(cx, delete_chat_id.clone());
+                                        },
+                                    ),
+                                );
+
                             div().w_full().pb(px(5.)).child(
                                 Toggle::new(list_id.with_suffix(format!("thread_{}", chat_id)))
                                     .text(chat_title)
@@ -238,7 +265,9 @@ impl RenderOnce for Sidebar {
                                             *this = Some(chat_id_owned.clone())
                                         });
                                     })
-                                    .justify_start(),
+                                    .justify_between()
+                                    .pr(px(5.))
+                                    .child_right(delete_button),
                             )
                         })
                         .collect()
