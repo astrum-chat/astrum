@@ -1,3 +1,7 @@
+## Unreleased
+## Features
+- Threads can now be deleted.
+
 # v0.1.10
 ## Features
 - Models are now displayed with their provider's icon.
