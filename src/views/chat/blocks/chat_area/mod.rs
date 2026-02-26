@@ -174,6 +174,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                                         .parameters
                                         .read(cx)
                                         .as_ref()
+                                        .filter(|p| !p.is_empty())
                                         .map(|p| ModelParams::new(p));
                                     let quantization = managers
                                         .models
@@ -181,6 +182,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                                         .quantization
                                         .read(cx)
                                         .as_ref()
+                                        .filter(|q| !q.is_empty())
                                         .map(|q| ModelQuant::new(q));
                                     Model {
                                         id,

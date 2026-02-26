@@ -308,10 +308,11 @@ pub fn create_models_select_state(
     if let Some(selection) = initial_selection {
         let display_name = Model {
             id: selection.model_id.clone(),
-            parameters: selection.parameters.as_deref().map(|p| ModelParams::new(p)),
+            parameters: selection.parameters.as_deref().filter(|p| !p.is_empty()).map(|p| ModelParams::new(p)),
             quantization: selection
                 .quantization
                 .as_deref()
+                .filter(|q| !q.is_empty())
                 .map(|q| ModelQuant::new(q)),
         }
         .to_string();
