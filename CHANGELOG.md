@@ -1,3 +1,7 @@
+# v0.1.10
+## Features
+- Models are now displayed with their provider's icon.
+
 # v0.1.9
 ## Features
 - Added markdown support for links.
