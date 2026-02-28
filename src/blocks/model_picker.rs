@@ -47,8 +47,7 @@ impl ModelPicker {
         window: &mut Window,
         cx: &mut App,
     ) -> Self {
-        let initial_selection: Option<InitialModelSelection> = {
-            let models = managers.models.read_blocking();
+        let initial_selection: Option<InitialModelSelection> = managers.models.read_with(cx, |models, cx| {
             let pair = match source {
                 ModelSelectionSource::Current => &models.current_model,
                 ModelSelectionSource::ChatTitles => &models.chat_titles_model,
@@ -74,7 +73,7 @@ impl ModelPicker {
                 }
                 _ => None,
             }
-        };
+        });
 
         let models_select_state = create_models_select_state(
             id,
@@ -86,17 +85,16 @@ impl ModelPicker {
         );
         let state = Arc::new(models_select_state);
 
-        let providers_entity = managers.models.read_blocking().providers.clone();
+        let providers_entity = managers.models.read(cx).providers.clone();
         observe_providers_for_refresh(&providers_entity, state.clone(), managers.clone(), cx);
 
-        let (current_provider_id, _, current_model, _, _) = {
-            let models = managers.models.read_blocking();
+        let (current_provider_id, _, current_model, _, _) = managers.models.read_with(cx, |models, cx| {
             let pair = match source {
                 ModelSelectionSource::Current => &models.current_model,
                 ModelSelectionSource::ChatTitles => &models.chat_titles_model,
             };
             pair.read_selection(cx)
-        };
+        });
 
         populate_state_from_cache(
             &state,
@@ -115,14 +113,13 @@ impl ModelPicker {
                     cx.notify();
                 });
 
-                let (current_provider_id, _, current_model, _, _) = {
-                    let models = managers.models.read_blocking();
+                let (current_provider_id, _, current_model, _, _) = managers.models.read_with(cx, |models, cx| {
                     let pair = match source {
                         ModelSelectionSource::Current => &models.current_model,
                         ModelSelectionSource::ChatTitles => &models.chat_titles_model,
                     };
                     pair.read_selection(cx)
-                };
+                });
 
                 populate_state_from_cache(
                     &state,
@@ -136,15 +133,14 @@ impl ModelPicker {
         }
 
         let has_no_providers = providers_entity.read(cx).is_empty();
-        let has_no_model = {
-            let models = managers.models.read_blocking();
+        let has_no_model = managers.models.read_with(cx, |models, cx| {
             match source {
                 ModelSelectionSource::Current => models.get_current_model(cx).is_none(),
                 ModelSelectionSource::ChatTitles => {
                     models.get_chat_titles_model(cx).is_none()
                 }
             }
-        };
+        });
 
         Self {
             state,

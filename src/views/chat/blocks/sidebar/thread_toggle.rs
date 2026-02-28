@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, div, ease_out_quint, prelude::*, px};
@@ -9,7 +8,6 @@ use gpui_tesserae::{
     extensions::mouse_handleable::MouseHandleable,
     theme::ThemeExt,
 };
-use smol::lock::RwLock;
 
 use schema::UniqueId;
 
@@ -18,7 +16,7 @@ use crate::{assets::AstrumIconKind, managers::ChatsManager};
 #[derive(IntoElement)]
 pub struct ThreadToggle {
     id: ElementId,
-    chats: Arc<RwLock<ChatsManager>>,
+    chats: Entity<ChatsManager>,
     chat_id: UniqueId,
     title: String,
     checked: bool,
@@ -28,7 +26,7 @@ pub struct ThreadToggle {
 impl ThreadToggle {
     pub fn new(
         id: impl Into<ElementId>,
-        chats: Arc<RwLock<ChatsManager>>,
+        chats: Entity<ChatsManager>,
         chat_id: UniqueId,
         title: String,
         checked: bool,
@@ -87,8 +85,7 @@ impl RenderOnce for ThreadToggle {
                     .rounded(md_corner_radii - px((5f32 / 2.).floor()))
                     .on_click(move |_event, _window, cx| {
                         chats
-                            .write_blocking()
-                            .delete_chat(cx, delete_chat_id.clone());
+                            .update(cx, |chats, cx| chats.delete_chat(cx, delete_chat_id.clone()));
                     }),
             );
 

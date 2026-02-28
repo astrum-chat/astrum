@@ -66,13 +66,9 @@ impl RenderOnce for ProvidersPage {
             let name = kind.default_name();
             let url = kind.default_url();
 
-            let provider_id = managers.models.write_blocking().new_provider(
-                cx,
-                kind,
-                name,
-                url,
-                None,
-            );
+            let provider_id = managers.models.update(cx, |models, cx| {
+                models.new_provider(cx, kind, name, url, None)
+            });
 
             // Fetch models for the newly created provider
             refetch_provider_models(
@@ -151,7 +147,7 @@ impl RenderOnce for ProvidersPage {
                     ),
             )
             .child({
-                let providers = self.managers.models.read_blocking().providers.read(cx);
+                let providers = self.managers.models.read(cx).providers.read(cx);
 
                 match providers.len() {
                     0 => render_prompt_create_first_provider(cx).into_any_element(),

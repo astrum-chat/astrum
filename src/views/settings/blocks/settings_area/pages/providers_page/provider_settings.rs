@@ -107,7 +107,7 @@ impl RenderOnce for ProviderSettings {
                 let api_key = self
                     .managers
                     .models
-                    .read_blocking()
+                    .read(cx)
                     .get_provider_api_key(cx, &self.provider_id)
                     .unwrap_or_default();
 
@@ -203,8 +203,7 @@ impl RenderOnce for ProviderSettings {
                 .on_click(move |_event, _window, cx| {
                     managers
                         .models
-                        .write_blocking()
-                        .delete_provider(cx, provider_id.clone());
+                        .update(cx, |models, cx| models.delete_provider(cx, provider_id.clone()));
                 })
         };
 

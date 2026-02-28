@@ -84,7 +84,7 @@ fn render_model_picker(
     let padding = cx.get_theme().layout.padding.xl;
 
     // Get the models cache from the manager
-    let models_cache = managers.models.read_blocking().models_cache.clone();
+    let models_cache = managers.models.read(cx).models_cache.clone();
 
     // Create model picker with custom on_item_click for chat titles page
     let managers_for_callback = managers.clone();
@@ -105,14 +105,16 @@ fn render_model_picker(
                 };
 
                 if let Some(selection) = selection {
-                    managers_for_callback.models.write_blocking().set_chat_titles_selection(
-                        cx,
-                        selection.provider_id,
-                        selection.provider_name,
-                        selection.model_id,
-                        selection.parameters,
-                        selection.quantization,
-                    );
+                    managers_for_callback.models.update(cx, |models, cx| {
+                        models.set_chat_titles_selection(
+                            cx,
+                            selection.provider_id,
+                            selection.provider_name,
+                            selection.model_id,
+                            selection.parameters,
+                            selection.quantization,
+                        );
+                    });
                 }
             }
             state.hide_menu(cx);

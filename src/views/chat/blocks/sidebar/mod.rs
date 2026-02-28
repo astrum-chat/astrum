@@ -81,30 +81,26 @@ impl RenderOnce for Sidebar {
         );
 
         let available_update = self.managers.available_update.read(cx).clone();
-        let chats = self.managers.chats.read_blocking();
-        let db_initialized = chats.db_initialized();
-        let current_chat_id_state = chats.get_current_chat_id().clone();
+        let (current_chat_id_state, db) = self.managers.chats.read_with(cx, |chats, _cx| {
+            (
+                chats.get_current_chat_id().clone(),
+                if chats.db_initialized() { Some(chats.db().clone()) } else { None },
+            )
+        });
         let current_chat_id = current_chat_id_state.read(cx).clone();
 
         let chat_list: Option<
             DbEntity<BTreeMap<OrderKey, (PrimaryKey<UniqueId>, Option<String>)>>,
-        > = if db_initialized {
-            let db = chats.db().clone();
-            Some(
-                window.use_keyed_db_query(self.id.with_suffix("chat_list"), cx, |_window, _cx| {
-                    db.query(
-                        AstrumDb::CHATS
-                            .select((ChatRecord::ID, ChatRecord::TITLE))
-                            .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
-                            .fetch_all::<BTreeMap<_, _>>(),
-                    )
-                }),
-            )
-        } else {
-            None
-        };
-
-        drop(chats);
+        > = db.map(|db| {
+            window.use_keyed_db_query(self.id.with_suffix("chat_list"), cx, |_window, _cx| {
+                db.query(
+                    AstrumDb::CHATS
+                        .select((ChatRecord::ID, ChatRecord::TITLE))
+                        .order_by(ChatRecord::EDITED_AT, OrderDirection::Desc)
+                        .fetch_all::<BTreeMap<_, _>>(),
+                )
+            })
+        });
 
         let current_query = search_chats_input_state.read(cx).value().to_string();
         let search_state_data = search_state.read(cx);

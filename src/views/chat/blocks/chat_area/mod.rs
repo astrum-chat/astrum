@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyml::{
     ChatChunk, ChatOptions, MessageRole,
     models::{Message, Model, ModelParams, ModelQuant},
@@ -20,11 +18,10 @@ use gpui_tesserae::{
 use notitia::prelude::*;
 use notitia_gpui::WindowNotitiaExt;
 use serde_json::value::RawValue;
-use smol::lock::RwLock;
 
 use schema::{AstrumDb, MessageRecord, UniqueId};
 
-use crate::{assets::AstrumIconKind, blocks::ModelPicker, managers::{Managers, ChatsManager, ModelsManager}};
+use crate::{assets::AstrumIconKind, blocks::ModelPicker, managers::{Managers, ChatsManager}};
 
 mod existing_chat;
 mod md_render;
@@ -50,17 +47,21 @@ impl ChatArea {
 
 impl RenderOnce for ChatArea {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
-        let chats = self.managers.chats.read_blocking();
-        let current_chat_id = chats.get_current_chat_id().read(cx).clone();
-        let db_initialized = chats.db_initialized();
+        let (current_chat_id, db_initialized, db) = self.managers.chats.read_with(cx, |chats, cx| {
+            (
+                chats.get_current_chat_id().read(cx).clone(),
+                chats.db_initialized(),
+                if chats.db_initialized() { Some(chats.db().clone()) } else { None },
+            )
+        });
 
         let messages = current_chat_id
             .as_ref()
             .filter(|_| db_initialized)
-            .map(|chat_id| {
-                let db = chats.db().clone();
+            .and_then(|chat_id| {
+                let db = db.as_ref()?;
                 let chat_id_for_query = chat_id.clone();
-                window.use_keyed_db_query(format!("messages_{}", chat_id), cx, |_window, _cx| {
+                Some(window.use_keyed_db_query(format!("messages_{}", chat_id), cx, |_window, _cx| {
                     db.query(
                         AstrumDb::MESSAGES
                             .select((
@@ -72,10 +73,8 @@ impl RenderOnce for ChatArea {
                             .order_by(MessageRecord::CREATED_AT, OrderDirection::Asc)
                             .fetch_all::<BTreeMap<_, _>>(),
                     )
-                })
+                }))
             });
-
-        drop(chats);
 
         div()
             .id(self.id.clone())
@@ -111,7 +110,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
 
     let chat_box_input_state = window.use_state(cx, |_window, cx| InputState::new(cx));
 
-    let models_cache = elem.managers.models.read_blocking().models_cache.clone();
+    let models_cache = elem.managers.models.read(cx).models_cache.clone();
 
     let picker = ModelPicker::new(
         elem.id.clone(),
@@ -131,12 +130,11 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         .evaluate(window, cx)
         .value();
 
-    let current_provider_icon: Option<SharedString> = {
-        let models = elem.managers.models.read_blocking();
+    let current_provider_icon: Option<SharedString> = elem.managers.models.read_with(cx, |models, cx| {
         models
             .get_current_provider(cx)
             .map(|p| p.icon.read(cx).clone())
-    };
+    });
 
     let chat_box_left_items = div()
         .max_w_full()
@@ -155,37 +153,38 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                         .get_selected_item_name(cx)
                         .map(|name| name.to_string())
                         .unwrap_or_else(|| {
-                            let models = elem.managers.models.read_blocking();
-                            if models.providers.read(cx).is_empty() {
-                                return "No provider exists".to_string();
-                            }
-                            let model_id = models.get_current_model(cx).cloned();
-                            match model_id {
-                                Some(id) => {
-                                    let parameters = models
-                                        .current_model
-                                        .parameters
-                                        .read(cx)
-                                        .as_ref()
-                                        .filter(|p| !p.is_empty())
-                                        .map(|p| ModelParams::new(p));
-                                    let quantization = models
-                                        .current_model
-                                        .quantization
-                                        .read(cx)
-                                        .as_ref()
-                                        .filter(|q| !q.is_empty())
-                                        .map(|q| ModelQuant::new(q));
-                                    Model {
-                                        id,
-                                        parameters,
-                                        quantization,
-                                        thinking: None,
-                                    }
-                                    .to_string()
+                            elem.managers.models.read_with(cx, |models, cx| {
+                                if models.providers.read(cx).is_empty() {
+                                    return "No provider exists".to_string();
                                 }
-                                _ => "No model selected".to_string(),
-                            }
+                                let model_id = models.get_current_model(cx).cloned();
+                                match model_id {
+                                    Some(id) => {
+                                        let parameters = models
+                                            .current_model
+                                            .parameters
+                                            .read(cx)
+                                            .as_ref()
+                                            .filter(|p| !p.is_empty())
+                                            .map(|p| ModelParams::new(p));
+                                        let quantization = models
+                                            .current_model
+                                            .quantization
+                                            .read(cx)
+                                            .as_ref()
+                                            .filter(|q| !q.is_empty())
+                                            .map(|q| ModelQuant::new(q));
+                                        Model {
+                                            id,
+                                            parameters,
+                                            quantization,
+                                            thinking: None,
+                                        }
+                                        .to_string()
+                                    }
+                                    _ => "No model selected".to_string(),
+                                }
+                            })
                         }),
                 )
                 .child_right(
@@ -221,7 +220,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 ),
         );
 
-    let is_streaming = *elem.managers.chats.read_blocking().is_streaming.read(cx);
+    let is_streaming = elem.managers.chats.read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
     let has_input_text = !chat_box_input_state.read(cx).value().is_empty();
 
     let submit_disabled =
@@ -295,37 +294,35 @@ fn handle_submit(
     chat_box_input_state: &Entity<InputState>,
     cx: &mut App,
 ) {
-    let chats = managers.chats.read_blocking();
-    let is_streaming = *chats.is_streaming.read(cx);
+    let is_streaming = managers.chats.read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
 
     if is_streaming {
-        chats.cancel_streaming(cx);
+        managers.chats.update(cx, |chats, cx| chats.cancel_streaming(cx));
         return;
     }
 
-    let models = managers.models.read_blocking();
-    if models.get_current_provider(cx).is_none()
-        || models.get_current_model(cx).is_none()
-    {
+    let has_provider_and_model = managers.models.read_with(cx, |models, cx| {
+        models.get_current_provider(cx).is_some() && models.get_current_model(cx).is_some()
+    });
+    if !has_provider_and_model {
         return;
     }
-    drop(models);
 
     let contents = chat_box_input_state.update(cx, |this: &mut InputState, _cx| this.clear());
     let Some(contents) = contents else { return };
-    drop(chats);
     send_message(managers.clone(), contents, cx);
 }
 
 fn spawn_title_generation(
-    models: &ModelsManager,
-    chats: &Arc<RwLock<ChatsManager>>,
+    models: &Entity<crate::managers::ModelsManager>,
+    chats: &Entity<ChatsManager>,
     chat_id: &UniqueId,
     contents: &SharedString,
     cx: &mut App,
 ) {
-    let chat_titles_provider = models.get_chat_titles_provider(cx).cloned();
-    let chat_titles_model = models.get_chat_titles_model(cx).cloned();
+    let (chat_titles_provider, chat_titles_model) = models.read_with(cx, |models, cx| {
+        (models.get_chat_titles_provider(cx).cloned(), models.get_chat_titles_model(cx).cloned())
+    });
 
     let (Some(provider), Some(model)) = (chat_titles_provider, chat_titles_model) else {
         return;
@@ -356,15 +353,15 @@ fn spawn_title_generation(
 
                 let current_title = title.trim().to_string();
                 if !current_title.is_empty() {
-                    let _ = cx.update(|cx| {
-                        chats.write_blocking().set_title(cx, &chat_id, &current_title);
+                    let _ = chats.update(cx, |chats: &mut ChatsManager, cx| {
+                        chats.set_title(cx, &chat_id, &current_title);
                     });
                 }
             }
         }
 
-        let _ = cx.update(|_cx| {
-            chats.write_blocking().drop_mutation_queue(&chat_id);
+        let _ = chats.update(cx, |chats: &mut ChatsManager, _cx| {
+            chats.drop_mutation_queue(&chat_id);
         });
     })
     .detach();
@@ -375,43 +372,43 @@ fn send_message(
     contents: SharedString,
     cx: &mut App,
 ) -> Option<()> {
-    let models = managers.models.read_blocking();
-    let current_provider = models.get_current_provider(cx).cloned()?;
-    let current_model = models.get_current_model(cx).cloned()?;
+    let (current_provider, current_model) = managers.models.read_with(cx, |models, cx| {
+        (models.get_current_provider(cx).cloned(), models.get_current_model(cx).cloned())
+    });
+    let current_provider = current_provider?;
+    let current_model = current_model?;
 
-    let chats = managers.chats.read_blocking();
-    let current_chat_id = chats.get_current_chat_id().read(cx).clone();
+    let (chat_id, is_new_chat, db, assistant_msg_id, abort_registration) = managers.chats.update(cx, |chats, cx| {
+        let current_chat_id = chats.get_current_chat_id().read(cx).clone();
 
-    let (chat_id, is_new_chat) = match current_chat_id {
-        Some(id) => (id, false),
-        None => {
-            let id = chats.create_chat(cx);
-            (id, true)
-        }
-    };
+        let (chat_id, is_new_chat) = match current_chat_id {
+            Some(id) => (id, false),
+            None => {
+                let id = chats.create_chat(cx);
+                (id, true)
+            }
+        };
 
-    chats.set_current_chat(cx, chat_id.clone());
+        chats.set_current_chat(cx, chat_id.clone());
+
+        let _user_msg_id =
+            chats.push_message(&chat_id, contents.as_ref(), MessageRole::User);
+        let assistant_msg_id = chats.push_message(&chat_id, "", MessageRole::Assistant);
+
+        chats.set_streaming(cx, true);
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        chats.set_abort_handle(cx, Some(abort_handle));
+
+        let db = chats.db().clone();
+
+        (chat_id, is_new_chat, db, assistant_msg_id, abort_registration)
+    });
 
     if is_new_chat {
-        spawn_title_generation(&models, &managers.chats, &chat_id, &contents, cx);
+        spawn_title_generation(&managers.models, &managers.chats, &chat_id, &contents, cx);
     }
 
-    let _user_msg_id =
-        chats.push_message(&chat_id, contents.as_ref(), MessageRole::User);
-    let assistant_msg_id = chats.push_message(&chat_id, "", MessageRole::Assistant);
-
-    chats.set_streaming(cx, true);
-    let (abort_handle, abort_registration) = AbortHandle::new_pair();
-    chats.set_abort_handle(cx, Some(abort_handle));
-
-    // Build the messages list from what we know rather than reading from DB,
-    // since the inserts above are async and may not have committed yet.
-    let db = chats.db().clone();
     let chat_id_for_stream = chat_id.clone();
-
-    drop(chats);
-    drop(models);
-
     let chats_for_cleanup = managers.chats.clone();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
@@ -452,8 +449,8 @@ fn send_message(
                 Ok(mut response) => {
                     while let Some(Ok(chunk)) = response.next().await {
                         if let ChatChunk::Content(text) = chunk {
-                            let _ = cx.update(|cx| {
-                                chats_for_cleanup.write_blocking().push_message_content(
+                            let _ = chats_for_cleanup.update(cx, |chats, cx| {
+                                chats.push_message_content(
                                     cx,
                                     &assistant_msg_id,
                                     &text,
@@ -463,8 +460,8 @@ fn send_message(
                     }
                 }
                 Err(err) => {
-                    let _ = cx.update(|cx| {
-                        chats_for_cleanup.write_blocking().push_message_content(
+                    let _ = chats_for_cleanup.update(cx, |chats, cx| {
+                        chats.push_message_content(
                             cx,
                             &assistant_msg_id,
                             &err.to_string(),
@@ -476,8 +473,7 @@ fn send_message(
 
         let _ = Abortable::new(streaming_future, abort_registration).await;
 
-        let _ = cx.update(|cx| {
-            let mut chats = chats_for_cleanup.write_blocking();
+        let _ = chats_for_cleanup.update(cx, |chats, cx| {
             chats.drop_mutation_queue(&assistant_msg_id);
             chats.set_streaming(cx, false);
             chats.set_abort_handle(cx, None);
