@@ -7,19 +7,19 @@ edition = "2024"
 members = [".", "crates/schema", "tree-sitter-astrum-md"]
 
 [workspace.dependencies]
-# gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
-# anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
-# notitia = { git = "https://github.com/astrum-chat/notitia" }
-# notitia_gpui = { git = "https://github.com/astrum-chat/notitia" }
-# notitia_sqlite = { git = "https://github.com/astrum-chat/notitia", default-features = false, features = ["runtime-async-std-native-tls"] }
-# notitia_cli = { git = "https://github.com/astrum-chat/notitia" }
+gpui_tesserae = { git = "https://github.com/astrum-chat/gpui_tesserae" }
+anyml = { git = "https://github.com/astrum-chat/anyml", features = ["ollama", "anthropic", "openai"] }
+notitia = { git = "https://github.com/astrum-chat/notitia" }
+notitia_gpui = { git = "https://github.com/astrum-chat/notitia" }
+notitia_sqlite = { git = "https://github.com/astrum-chat/notitia", default-features = false, features = ["runtime-async-std-native-tls"] }
+notitia_cli = { git = "https://github.com/astrum-chat/notitia" }
 # Local development.
-gpui_tesserae = { path = "../gpui_tesserae" }
-anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
-notitia = { path = "../notitia/crates/notitia" }
-notitia_gpui = { path = "../notitia/crates/notitia_gpui" }
-notitia_sqlite = { path = "../notitia/crates/notitia_sqlite", default-features = false, features = ["runtime-async-std-native-tls"] }
-notitia_cli = { path = "../notitia/crates/notitia_cli" }
+# gpui_tesserae = { path = "../gpui_tesserae" }
+# anyml = { path = "../anyml", features = ["ollama", "anthropic", "openai"] }
+# notitia = { path = "../notitia/crates/notitia" }
+# notitia_gpui = { path = "../notitia/crates/notitia_gpui" }
+# notitia_sqlite = { path = "../notitia/crates/notitia_sqlite", default-features = false, features = ["runtime-async-std-native-tls"] }
+# notitia_cli = { path = "../notitia/crates/notitia_cli" }
 schema = { path = "./crates/schema" }
 
 [dependencies]

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyml::{
-    ChatOptions, MessageRole,
+    ChatChunk, ChatOptions, MessageRole,
     models::{Message, Model, ModelParams, ModelQuant},
 };
 use futures::future::{AbortHandle, Abortable};
@@ -24,11 +24,7 @@ use smol::lock::RwLock;
 
 use schema::{AstrumDb, MessageRecord, UniqueId};
 
-use crate::{
-    Managers,
-    assets::AstrumIconKind,
-    blocks::ModelPicker,
-};
+use crate::{Managers, assets::AstrumIconKind, blocks::ModelPicker};
 
 mod existing_chat;
 mod md_render;
@@ -148,13 +144,10 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 .w_auto()
                 .max_w(relative(1.))
                 .variant(ToggleVariant::Secondary)
+                .checked(picker.state.menu_visible_transition.read_goal(cx) == &true.into())
                 .disabled(picker.has_no_providers)
                 .when_some(current_provider_icon, |this, icon_path| {
-                    this.child_left(
-                        Icon::new(icon_path)
-                            .size(px(14.))
-                            .color(primary_text_color),
-                    )
+                    this.child_left(Icon::new(icon_path).size(px(14.)).color(primary_text_color))
                 })
                 .text(
                     models_state_for_toggle
@@ -188,6 +181,7 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                                         id,
                                         parameters,
                                         quantization,
+                                        thinking: None,
                                     }
                                     .to_string()
                                 }
@@ -355,7 +349,9 @@ fn spawn_title_generation(
         if let Ok(mut response) = provider.inner.chat(&options).await {
             let mut title = String::new();
             while let Some(Ok(chunk)) = response.next().await {
-                title.push_str(&chunk.content);
+                if let ChatChunk::Content(text) = chunk {
+                    title.push_str(&text);
+                }
 
                 let current_title = title.trim().to_string();
                 if !current_title.is_empty() {
@@ -460,14 +456,16 @@ fn send_message(
             match response {
                 Ok(mut response) => {
                     while let Some(Ok(chunk)) = response.next().await {
-                        let _ = cx.update(|cx| {
-                            let mut managers_guard = managers_for_cleanup.write_blocking();
-                            managers_guard.chats.push_message_content(
-                                cx,
-                                &assistant_msg_id,
-                                &chunk.content,
-                            );
-                        });
+                        if let ChatChunk::Content(text) = chunk {
+                            let _ = cx.update(|cx| {
+                                let mut managers_guard = managers_for_cleanup.write_blocking();
+                                managers_guard.chats.push_message_content(
+                                    cx,
+                                    &assistant_msg_id,
+                                    &text,
+                                );
+                            });
+                        }
                     }
                 }
                 Err(err) => {
