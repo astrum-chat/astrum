@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct PersistenceManager {}
 
 const BASE_DIR_NAME: &str = "chat.astrum.astrum";

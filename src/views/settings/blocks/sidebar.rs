@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gpui::{
     App, ElementId, Entity, InteractiveElement, IntoElement, RenderOnce, SharedString, div,
     prelude::*, px,
@@ -10,9 +8,8 @@ use gpui_tesserae::{
     extensions::mouse_handleable::MouseHandleable,
     theme::ThemeExt,
 };
-use smol::lock::RwLock;
 
-use crate::{assets::AstrumIconKind, managers::Managers};
+use crate::assets::AstrumIconKind;
 
 const SETTING_PAGES: &[(AstrumIconKind, &str)] = &[
     (AstrumIconKind::Key, "Providers"),
@@ -22,29 +19,21 @@ const SETTING_PAGES: &[(AstrumIconKind, &str)] = &[
 #[derive(IntoElement)]
 pub struct Sidebar {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    settings_page: Entity<SharedString>,
 }
 
 impl Sidebar {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
-        let id = id.into();
-
+    pub fn new(id: impl Into<ElementId>, settings_page: Entity<SharedString>) -> Self {
         Self {
-            id: id.clone(),
-            managers,
+            id: id.into(),
+            settings_page,
         }
     }
 }
 
 impl RenderOnce for Sidebar {
     fn render(self, _window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
-        let current_settings_page_name_state = &self
-            .managers
-            .read_arc_blocking()
-            .settings
-            .current_settings_page_name;
-
-        let current_settings_page_name = current_settings_page_name_state.read(cx);
+        let current_settings_page_name = self.settings_page.read(cx);
 
         let top_section = div()
             .pl(px(10.))
@@ -56,7 +45,7 @@ impl RenderOnce for Sidebar {
                 render_settings_page_toggle(
                     &self.id,
                     (icon, name),
-                    current_settings_page_name_state.clone(),
+                    self.settings_page.clone(),
                     current_settings_page_name,
                 )
             }));

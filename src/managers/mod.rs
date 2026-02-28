@@ -1,6 +1,9 @@
-use gpui::App;
+use std::sync::Arc;
+
+use gpui::{App, Entity};
 use notitia::Notitia;
 use notitia_sqlite::SqliteAdapter;
+use smol::lock::RwLock;
 
 use schema::AstrumDb;
 
@@ -19,24 +22,31 @@ pub use settings_manager::*;
 mod update_manager;
 pub use update_manager::*;
 
+/// Application-wide manager handles.
+///
+/// Each manager is independently lockable, eliminating the single-lock
+/// contention of the old `Arc<RwLock<Managers>>` god object.
+///
+/// Lightweight entities (settings page name, available update) are stored
+/// as bare `Entity<T>` values — no lock needed since GPUI entities have
+/// built-in interior mutability and change tracking.
+#[derive(Clone)]
 pub struct Managers {
-    pub db: Option<Notitia<AstrumDb, SqliteAdapter>>,
-    pub models: ModelsManager,
-    pub chats: ChatsManager,
+    pub models: Arc<RwLock<ModelsManager>>,
+    pub chats: Arc<RwLock<ChatsManager>>,
     pub persistence: PersistenceManager,
-    pub settings: SettingsManager,
-    pub update: UpdateManager,
+    pub available_update: Entity<Option<ReleaseInfo>>,
 }
 
 impl Managers {
     pub fn new(cx: &mut App) -> Self {
+        let update = UpdateManager::new(cx);
+
         Self {
-            db: None,
-            models: ModelsManager::new(cx),
-            chats: ChatsManager::new(cx),
+            models: Arc::new(RwLock::new(ModelsManager::new(cx))),
+            chats: Arc::new(RwLock::new(ChatsManager::new(cx))),
             persistence: PersistenceManager::new(),
-            settings: SettingsManager::new(cx),
-            update: UpdateManager::new(cx),
+            available_update: update.available_update,
         }
     }
 
@@ -48,9 +58,8 @@ impl Managers {
 
     /// Initialize managers with an already-connected database.
     /// Call this inside `cx.update()` after awaiting `connect_db`.
-    pub fn init_with_db(&mut self, cx: &mut App, db: Notitia<AstrumDb, SqliteAdapter>) {
-        self.db = Some(db.clone());
-        self.models.init(cx, db.clone());
-        self.chats.init(cx, db);
+    pub fn init_with_db(&self, cx: &mut App, db: Notitia<AstrumDb, SqliteAdapter>) {
+        self.models.write_blocking().init(cx, db.clone());
+        self.chats.write_blocking().init(cx, db);
     }
 }

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gpui::{
     App, Bounds, ElementId, Overflow, Pixels, PointRefinement, Window, canvas, deferred, div,
     prelude::*, px, relative,
@@ -13,7 +11,6 @@ use gpui_tesserae::{
     extensions::mouse_handleable::MouseHandleable,
     theme::{ThemeExt, ThemeLayerKind},
 };
-use smol::lock::RwLock;
 
 mod provider_settings;
 use provider_settings::*;
@@ -28,11 +25,11 @@ use crate::{
 #[derive(IntoElement)]
 pub struct ProvidersPage {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
 }
 
 impl ProvidersPage {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(id: impl Into<ElementId>, managers: Managers) -> Self {
         Self {
             id: id.into(),
             managers,
@@ -69,7 +66,7 @@ impl RenderOnce for ProvidersPage {
             let name = kind.default_name();
             let url = kind.default_url();
 
-            let provider_id = managers.write_arc_blocking().models.new_provider(
+            let provider_id = managers.models.write_blocking().new_provider(
                 cx,
                 kind,
                 name,
@@ -154,7 +151,7 @@ impl RenderOnce for ProvidersPage {
                     ),
             )
             .child({
-                let providers = self.managers.read_arc_blocking().models.providers.read(cx);
+                let providers = self.managers.models.read_blocking().providers.read(cx);
 
                 match providers.len() {
                     0 => render_prompt_create_first_provider(cx).into_any_element(),

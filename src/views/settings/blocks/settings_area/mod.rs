@@ -1,23 +1,26 @@
-use std::sync::Arc;
+use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, SharedString, div, prelude::*, px};
 
-use gpui::{App, ElementId, IntoElement, RenderOnce, div, prelude::*, px};
-use smol::lock::RwLock;
-
-use crate::{Managers, views::settings::blocks::settings_area::pages::render_settings_page};
+use crate::{managers::Managers, views::settings::blocks::settings_area::pages::render_settings_page};
 
 mod pages;
 
 #[derive(IntoElement)]
 pub struct SettingsArea {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
+    settings_page: Entity<SharedString>,
 }
 
 impl SettingsArea {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(
+        id: impl Into<ElementId>,
+        managers: Managers,
+        settings_page: Entity<SharedString>,
+    ) -> Self {
         Self {
             id: id.into(),
             managers,
+            settings_page,
         }
     }
 }
@@ -31,6 +34,6 @@ impl RenderOnce for SettingsArea {
             .justify_center()
             .p(px(20.))
             .pb(px(0.))
-            .child(render_settings_page(cx, self.id, self.managers))
+            .child(render_settings_page(cx, self.id, self.managers, self.settings_page))
     }
 }

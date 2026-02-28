@@ -17,7 +17,6 @@ use notitia::OrderKey;
 use notitia::PrimaryKey;
 use notitia::prelude::*;
 use notitia_gpui::{DbEntity, WindowNotitiaExt};
-use smol::lock::RwLock;
 
 use schema::{AstrumDb, ChatRecord, UniqueId};
 
@@ -45,11 +44,11 @@ impl SearchState {
 #[derive(IntoElement)]
 pub struct Sidebar {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
 }
 
 impl Sidebar {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(id: impl Into<ElementId>, managers: Managers) -> Self {
         let id = id.into();
 
         Self {
@@ -81,11 +80,10 @@ impl RenderOnce for Sidebar {
             |_window, _cx| SearchState::new(),
         );
 
-        let managers = self.managers.read_blocking();
-        let available_update = managers.update.available_update.read(cx).clone();
-        let chats = &managers.chats;
+        let available_update = self.managers.available_update.read(cx).clone();
+        let chats = self.managers.chats.read_blocking();
         let db_initialized = chats.db_initialized();
-        let current_chat_id_state = chats.get_current_chat_id();
+        let current_chat_id_state = chats.get_current_chat_id().clone();
         let current_chat_id = current_chat_id_state.read(cx).clone();
 
         let chat_list: Option<
@@ -105,6 +103,8 @@ impl RenderOnce for Sidebar {
         } else {
             None
         };
+
+        drop(chats);
 
         let current_query = search_chats_input_state.read(cx).value().to_string();
         let search_state_data = search_state.read(cx);
@@ -229,7 +229,7 @@ impl RenderOnce for Sidebar {
 
                             ThreadToggle::new(
                                 list_id.with_suffix(format!("thread_{}", chat_id)),
-                                managers.clone(),
+                                managers.chats.clone(),
                                 chat_id.clone(),
                                 chat_title,
                                 current_id.as_ref() == Some(chat_id),

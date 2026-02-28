@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use gpui::{App, ElementId, Entity, SharedString, Window};
 use gpui_tesserae::components::select::SelectState;
-use smol::lock::RwLock;
 
 use crate::managers::Managers;
 
@@ -22,7 +21,7 @@ pub struct ModelPicker {
 impl ModelPicker {
     pub fn new(
         id: ElementId,
-        managers: Arc<RwLock<Managers>>,
+        managers: Managers,
         models_cache: Entity<ModelsCache>,
         custom_on_item_click: Option<OnModelItemClickFn>,
         window: &mut Window,
@@ -41,7 +40,7 @@ impl ModelPicker {
 
     pub fn new_with_source(
         id: ElementId,
-        managers: Arc<RwLock<Managers>>,
+        managers: Managers,
         models_cache: Entity<ModelsCache>,
         custom_on_item_click: Option<OnModelItemClickFn>,
         source: ModelSelectionSource,
@@ -49,17 +48,16 @@ impl ModelPicker {
         cx: &mut App,
     ) -> Self {
         let initial_selection: Option<InitialModelSelection> = {
-            let managers = managers.read_blocking();
+            let models = managers.models.read_blocking();
             let pair = match source {
-                ModelSelectionSource::Current => &managers.models.current_model,
-                ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+                ModelSelectionSource::Current => &models.current_model,
+                ModelSelectionSource::ChatTitles => &models.chat_titles_model,
             };
             let (provider_id, provider_name, model, parameters, quantization) =
                 pair.read_selection(cx);
             match (provider_id, provider_name, model) {
                 (Some(pid), Some(pn), Some(m)) => {
-                    let icon_path: SharedString = managers
-                        .models
+                    let icon_path: SharedString = models
                         .providers
                         .read(cx)
                         .get(&pid)
@@ -88,14 +86,14 @@ impl ModelPicker {
         );
         let state = Arc::new(models_select_state);
 
-        let providers_entity = managers.read_blocking().models.providers.clone();
+        let providers_entity = managers.models.read_blocking().providers.clone();
         observe_providers_for_refresh(&providers_entity, state.clone(), managers.clone(), cx);
 
         let (current_provider_id, _, current_model, _, _) = {
-            let managers = managers.read_blocking();
+            let models = managers.models.read_blocking();
             let pair = match source {
-                ModelSelectionSource::Current => &managers.models.current_model,
-                ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+                ModelSelectionSource::Current => &models.current_model,
+                ModelSelectionSource::ChatTitles => &models.chat_titles_model,
             };
             pair.read_selection(cx)
         };
@@ -118,10 +116,10 @@ impl ModelPicker {
                 });
 
                 let (current_provider_id, _, current_model, _, _) = {
-                    let managers = managers.read_blocking();
+                    let models = managers.models.read_blocking();
                     let pair = match source {
-                        ModelSelectionSource::Current => &managers.models.current_model,
-                        ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+                        ModelSelectionSource::Current => &models.current_model,
+                        ModelSelectionSource::ChatTitles => &models.chat_titles_model,
                     };
                     pair.read_selection(cx)
                 };
@@ -139,11 +137,11 @@ impl ModelPicker {
 
         let has_no_providers = providers_entity.read(cx).is_empty();
         let has_no_model = {
-            let managers = managers.read_blocking();
+            let models = managers.models.read_blocking();
             match source {
-                ModelSelectionSource::Current => managers.models.get_current_model(cx).is_none(),
+                ModelSelectionSource::Current => models.get_current_model(cx).is_none(),
                 ModelSelectionSource::ChatTitles => {
-                    managers.models.get_chat_titles_model(cx).is_none()
+                    models.get_chat_titles_model(cx).is_none()
                 }
             }
         };

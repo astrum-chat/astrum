@@ -1,10 +1,9 @@
 use gpui_tesserae::{ElementIdExt, theme::ThemeExt};
 use phf::phf_map;
-use smol::lock::RwLock;
-use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, ElementId, IntoElement, ParentElement, SharedString, Styled, div, px, relative,
+    AnyElement, App, ElementId, Entity, IntoElement, ParentElement, SharedString, Styled, div, px,
+    relative,
 };
 
 mod providers_page;
@@ -15,7 +14,7 @@ pub use chat_titles_page::*;
 
 use crate::managers::Managers;
 
-const SETTING_PAGES: phf::Map<&str, fn(ElementId, Arc<RwLock<Managers>>) -> AnyElement> = phf_map! {
+const SETTING_PAGES: phf::Map<&str, fn(ElementId, Managers) -> AnyElement> = phf_map! {
     "Providers" => |id, managers| {
         ProvidersPage::new(id, managers).into_any_element()
     },
@@ -24,20 +23,16 @@ const SETTING_PAGES: phf::Map<&str, fn(ElementId, Arc<RwLock<Managers>>) -> AnyE
     }
 };
 
-const INVALID_SETTING_PAGE: fn(ElementId, Arc<RwLock<Managers>>) -> AnyElement =
+const INVALID_SETTING_PAGE: fn(ElementId, Managers) -> AnyElement =
     |_id, _managers| div().into_any_element();
 
 pub fn render_settings_page(
     cx: &mut App,
     base_id: impl Into<ElementId>,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
+    settings_page: Entity<SharedString>,
 ) -> impl IntoElement {
-    let current_settings_page_name = managers
-        .read_arc_blocking()
-        .settings
-        .current_settings_page_name
-        .read(cx)
-        .clone();
+    let current_settings_page_name = settings_page.read(cx).clone();
 
     let render = SETTING_PAGES
         .get(current_settings_page_name.as_str())

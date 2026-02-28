@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
 use gpui::{ElementId, Window, prelude::*};
 use gpui_tesserae::ElementIdExt;
-use smol::lock::RwLock;
 
 use crate::{managers::Managers, views::BaseView};
 
@@ -11,11 +8,11 @@ use blocks::{ChatArea, Sidebar};
 
 pub struct ChatView {
     id: ElementId,
-    pub managers: Arc<RwLock<Managers>>,
+    pub managers: Managers,
 }
 
 impl ChatView {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(id: impl Into<ElementId>, managers: Managers) -> Self {
         Self {
             id: id.into(),
             managers,

@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, div, ease_out_quint, prelude::*, px};
 use gpui_tesserae::{
-    ElementIdExt, PositionalParentElement, conitional_transition,
+    ElementIdExt, PositionalParentElement,
     components::{Button, ButtonVariant, Toggle, ToggleVariant},
+    conitional_transition,
     extensions::mouse_handleable::MouseHandleable,
     theme::ThemeExt,
 };
@@ -12,12 +13,12 @@ use smol::lock::RwLock;
 
 use schema::UniqueId;
 
-use crate::{assets::AstrumIconKind, managers::Managers};
+use crate::{assets::AstrumIconKind, managers::ChatsManager};
 
 #[derive(IntoElement)]
 pub struct ThreadToggle {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    chats: Arc<RwLock<ChatsManager>>,
     chat_id: UniqueId,
     title: String,
     checked: bool,
@@ -27,7 +28,7 @@ pub struct ThreadToggle {
 impl ThreadToggle {
     pub fn new(
         id: impl Into<ElementId>,
-        managers: Arc<RwLock<Managers>>,
+        chats: Arc<RwLock<ChatsManager>>,
         chat_id: UniqueId,
         title: String,
         checked: bool,
@@ -35,7 +36,7 @@ impl ThreadToggle {
     ) -> Self {
         Self {
             id: id.into(),
-            managers,
+            chats,
             chat_id,
             title,
             checked,
@@ -70,7 +71,7 @@ impl RenderOnce for ThreadToggle {
         let delete_opacity = *opacity_transition.evaluate(window, cx);
 
         let delete_chat_id = self.chat_id.clone();
-        let managers = self.managers.clone();
+        let chats = self.chats.clone();
         let delete_button = div()
             .h_0()
             .flex()
@@ -85,9 +86,8 @@ impl RenderOnce for ThreadToggle {
                     // 5 is the amount of padding around the button.
                     .rounded(md_corner_radii - px((5f32 / 2.).floor()))
                     .on_click(move |_event, _window, cx| {
-                        managers
-                            .write_arc_blocking()
-                            .chats
+                        chats
+                            .write_blocking()
                             .delete_chat(cx, delete_chat_id.clone());
                     }),
             );

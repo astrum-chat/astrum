@@ -15,11 +15,9 @@ use gpui_tesserae::{
     components::Icon,
     components::select::{SelectItem, SelectItemsMap, SelectState},
 };
-use smol::lock::RwLock;
-
 use anyml::models::{Model, ModelParams, ModelQuant};
 
-use crate::{Managers, managers::Provider, utils::FrontInsertMap};
+use crate::{managers::{Managers, Provider}, utils::FrontInsertMap};
 use schema::UniqueId;
 
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
@@ -290,7 +288,7 @@ pub struct InitialModelSelection {
 /// If `initial_selection` is provided, a placeholder item will be added and selected.
 pub fn create_models_select_state(
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     custom_on_item_click: Option<OnModelItemClickFn>,
     initial_selection: Option<InitialModelSelection>,
     window: &mut Window,
@@ -363,8 +361,7 @@ pub fn create_models_select_state(
                 let _ = state.select_item(cx, item_name);
 
                 // Update ModelsManager
-                let mut managers = managers_for_callback.write_arc_blocking();
-                managers.models.set_current_selection(
+                managers_for_callback.models.write_blocking().set_current_selection(
                     cx,
                     selection.provider_id,
                     selection.provider_name,
@@ -436,12 +433,12 @@ pub enum ProviderConfigChange {
 /// Refetches models for a provider. For `Url` and `ApiKey` changes, checks if
 /// the value actually changed before applying and refetching.
 pub fn refetch_provider_models(
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     provider_id: UniqueId,
     config_change: ProviderConfigChange,
     cx: &mut App,
 ) {
-    let models_cache = managers.read_arc_blocking().models.models_cache.clone();
+    let models_cache = managers.models.read_blocking().models_cache.clone();
 
     if !matches!(config_change, ProviderConfigChange::Create) {
         let should_proceed = check_and_update_config_cache(
@@ -463,26 +460,27 @@ pub fn refetch_provider_models(
 }
 
 fn check_and_update_config_cache(
-    managers: &Arc<RwLock<Managers>>,
+    managers: &Managers,
     models_cache: &Entity<ModelsCache>,
     provider_id: &UniqueId,
     config_change: &ProviderConfigChange,
     cx: &mut App,
 ) -> bool {
-    let managers_guard = managers.read_arc_blocking();
+    let models_guard = managers.models.read_blocking();
 
     let current_url = cx
-        .read_entity(&managers_guard.models.providers, |providers, _cx| {
+        .read_entity(&models_guard.providers, |providers, _cx| {
             providers
                 .get(provider_id)
                 .map(|p| p.url.read(_cx).to_string())
         })
         .unwrap_or_default();
 
-    let current_api_key = managers_guard
-        .models
+    let current_api_key = models_guard
         .get_provider_api_key(cx, provider_id)
         .unwrap_or_default();
+
+    drop(models_guard);
 
     models_cache.update(cx, |cache, _| {
         let config_cache =
@@ -510,41 +508,40 @@ fn check_and_update_config_cache(
 }
 
 fn apply_config_change(
-    managers: &Arc<RwLock<Managers>>,
+    managers: &Managers,
     provider_id: &UniqueId,
     config_change: &ProviderConfigChange,
     cx: &mut App,
 ) {
-    let mut managers_guard = managers.write_arc_blocking();
+    let mut models_guard = managers.models.write_blocking();
     match config_change {
         ProviderConfigChange::Create => {}
         ProviderConfigChange::Url(url) => {
-            let _ = managers_guard
-                .models
+            let _ = models_guard
                 .edit_provider_url(cx, provider_id.clone(), url.clone());
         }
         ProviderConfigChange::ApiKey(api_key) => {
-            let _ = managers_guard.models.edit_provider_api_key(
+            let _ = models_guard.edit_provider_api_key(
                 cx,
                 provider_id.clone(),
                 api_key.clone(),
             );
         }
     }
-    let _ = managers_guard.models.reinit_provider(cx, provider_id);
+    let _ = models_guard.reinit_provider(cx, provider_id);
 }
 
 fn spawn_fetch_models(
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     provider_id: UniqueId,
     models_cache: Entity<ModelsCache>,
     cx: &mut App,
 ) {
     cx.spawn(async move |cx: &mut AsyncApp| {
         let provider: Option<crate::managers::Provider> = {
-            let managers = managers.read_arc_blocking();
+            let models = managers.models.read_blocking();
 
-            cx.read_entity(&managers.models.providers, |providers, _cx| {
+            cx.read_entity(&models.providers, |providers, _cx| {
                 providers.get(&provider_id).map(|p| p.as_ref().clone())
             })
         };
@@ -600,7 +597,7 @@ fn spawn_fetch_models(
     .detach();
 }
 
-pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
+pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
     if FETCH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -612,10 +609,10 @@ pub fn prefetch_all_models(managers: Arc<RwLock<Managers>>, cx: &mut App) {
             Vec<(UniqueId, crate::managers::Provider)>,
             Entity<ModelsCache>,
         ) = {
-            let managers = managers.read_arc_blocking();
-            let models_cache = managers.models.models_cache.clone();
+            let models = managers.models.read_blocking();
+            let models_cache = models.models_cache.clone();
 
-            let providers = cx.read_entity(&managers.models.providers, |providers, _cx| {
+            let providers = cx.read_entity(&models.providers, |providers, _cx| {
                 providers
                     .iter()
                     .map(|(id, p)| (id.clone(), p.as_ref().clone()))
@@ -707,7 +704,7 @@ fn push_model_item(
 }
 
 pub fn fetch_all_models(
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
     models_cache: Entity<ModelsCache>,
     cx: &mut App,
@@ -722,7 +719,7 @@ pub fn fetch_all_models(
 }
 
 pub fn fetch_all_models_with_source(
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
     models_cache: Entity<ModelsCache>,
     source: ModelSelectionSource,
@@ -733,10 +730,10 @@ pub fn fetch_all_models_with_source(
     }
 
     let (current_provider_id, current_model): (Option<UniqueId>, Option<String>) = {
-        let managers = managers.read_arc_blocking();
+        let models = managers.models.read_blocking();
         let pair = match source {
-            ModelSelectionSource::Current => &managers.models.current_model,
-            ModelSelectionSource::ChatTitles => &managers.models.chat_titles_model,
+            ModelSelectionSource::Current => &models.current_model,
+            ModelSelectionSource::ChatTitles => &models.chat_titles_model,
         };
         let (provider_id, _, model, _, _) = pair.read_selection(cx);
         (provider_id, model)
@@ -744,9 +741,9 @@ pub fn fetch_all_models_with_source(
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         let providers_info: Vec<(UniqueId, crate::managers::Provider)> = {
-            let managers = managers.read_arc_blocking();
+            let models = managers.models.read_blocking();
 
-            cx.read_entity(&managers.models.providers, |providers, _cx| {
+            cx.read_entity(&models.providers, |providers, _cx| {
                 providers
                     .iter()
                     .map(|(id, p)| (id.clone(), p.as_ref().clone()))
@@ -857,7 +854,7 @@ pub fn fetch_all_models_with_source(
 pub fn observe_providers_for_refresh(
     providers: &Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
     state: Arc<SelectState<ModelSelection, ModelSelectItem>>,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     cx: &mut App,
 ) {
     cx.observe(providers, move |providers, cx| {
@@ -868,18 +865,17 @@ pub fn observe_providers_for_refresh(
 
         state.remove_selection(cx);
 
-        let mut managers = managers.write_arc_blocking();
-        let current_provider_id = managers.models.current_model.provider_id.read(cx).clone();
+        let mut models = managers.models.write_blocking();
+        let current_provider_id = models.current_model.provider_id.read(cx).clone();
 
         if let Some(provider_id) = current_provider_id {
             let provider_exists = providers.read(cx).get(&provider_id).is_some();
             if !provider_exists {
-                managers.models.clear_current_selection(cx);
+                models.clear_current_selection(cx);
             }
         }
 
-        let chat_titles_provider_id = managers
-            .models
+        let chat_titles_provider_id = models
             .chat_titles_model
             .provider_id
             .read(cx)
@@ -888,7 +884,7 @@ pub fn observe_providers_for_refresh(
         if let Some(provider_id) = chat_titles_provider_id {
             let provider_exists = providers.read(cx).get(&provider_id).is_some();
             if !provider_exists {
-                managers.models.clear_chat_titles_selection(cx);
+                models.clear_chat_titles_selection(cx);
             }
         }
     })

@@ -10,7 +10,7 @@ use gpui_tesserae::{
 use notitia::Database;
 use notitia_sqlite::SqliteAdapter;
 use schema::AstrumDb;
-use smol::lock::RwLock;
+
 use std::sync::Arc;
 
 use crate::{
@@ -52,7 +52,7 @@ fn main() {
 
             cx.set_http_client(Arc::new(ReqwestHttpClient::new().unwrap()));
 
-            let managers = Arc::new(RwLock::new(Managers::new(cx)));
+            let managers = Managers::new(cx);
 
             {
                 let managers = managers.clone();
@@ -79,23 +79,20 @@ fn main() {
 
                                 cx.spawn({
                                     let managers = chat_view.managers.clone();
-                                    let db_url = managers.read_blocking().db_url();
+                                    let db_url = managers.db_url();
                                     async move |_chat_view, cx: &mut AsyncApp| {
                                         let db = AstrumDb::connect::<SqliteAdapter>(&db_url)
                                             .await
                                             .unwrap();
 
                                         let _ = cx.update(|cx| {
-                                            managers.write_arc_blocking().init_with_db(cx, db);
+                                            managers.init_with_db(cx, db);
 
                                             prefetch_all_models(managers.clone(), cx);
 
                                             let http_client = cx.http_client();
-                                            let available_update = managers
-                                                .read_blocking()
-                                                .update
-                                                .available_update
-                                                .clone();
+                                            let available_update =
+                                                managers.available_update.clone();
                                             UpdateManager::check_for_updates(
                                                 http_client,
                                                 available_update,
@@ -165,7 +162,7 @@ fn init_tab_indexing_actions(cx: &mut App) {
     cx.bind_keys([KeyBinding::new("shift-tab", TabPrev, None)]);
 }
 
-fn init_open_settings_action(cx: &mut App, managers: Arc<RwLock<Managers>>) {
+fn init_open_settings_action(cx: &mut App, managers: Managers) {
     cx.on_action(move |_: &OpenSettings, cx| {
         if !open_existing_window(cx) {
             open_new_settings_window(cx, managers.clone())
@@ -185,7 +182,7 @@ fn open_existing_window(cx: &mut App) -> bool {
     return true;
 }
 
-fn open_new_settings_window(cx: &mut App, managers: Arc<RwLock<Managers>>) {
+fn open_new_settings_window(cx: &mut App, managers: Managers) {
     let min_size = size(px(650.), px(450.));
     let initial_size = size(px(750.), px(550.));
     let bounds = Bounds::centered(None, initial_size, cx);
@@ -203,7 +200,8 @@ fn open_new_settings_window(cx: &mut App, managers: Arc<RwLock<Managers>>) {
                 ..Default::default()
             },
             |window, cx| {
-                let settings_view = cx.new(move |_cx| SettingsView::new("settings_view", managers));
+                let settings_view =
+                    cx.new(move |cx| SettingsView::new("settings_view", managers, cx));
 
                 cx.new(|cx| Root::new(settings_view, window, cx))
             },

@@ -1,8 +1,5 @@
-use std::sync::Arc;
-
-use gpui::{Context, ElementId, IntoElement, Render, Window};
+use gpui::{App, AppContext, Context, ElementId, Entity, IntoElement, Render, SharedString, Window};
 use gpui_tesserae::ElementIdExt;
-use smol::lock::RwLock;
 
 use crate::{managers::Managers, views::BaseView, views::settings::blocks::SettingsArea};
 
@@ -11,14 +8,16 @@ use blocks::Sidebar;
 
 pub struct SettingsView {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
+    settings_page: Entity<SharedString>,
 }
 
 impl SettingsView {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(id: impl Into<ElementId>, managers: Managers, cx: &mut App) -> Self {
         Self {
             id: id.into(),
             managers,
+            settings_page: cx.new(|_cx| SharedString::new("Providers")),
         }
     }
 }
@@ -28,11 +27,12 @@ impl Render for SettingsView {
         BaseView::new()
             .docked_left(Sidebar::new(
                 self.id.with_suffix("sidebar"),
-                self.managers.clone(),
+                self.settings_page.clone(),
             ))
             .child(SettingsArea::new(
                 self.id.with_suffix("settings_area"),
                 self.managers.clone(),
+                self.settings_page.clone(),
             ))
     }
 }

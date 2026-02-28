@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use gpui::{
     App, Div, ElementId, Entity, Fill, Focusable, FontWeight, div, ease_out_quint, img, prelude::*,
@@ -14,8 +14,6 @@ use gpui_tesserae::{
 };
 use gpui_transitions::WindowUseTransition;
 
-use smol::lock::RwLock;
-
 use schema::UniqueId;
 
 use crate::{
@@ -26,7 +24,7 @@ use crate::{
 };
 
 fn save_provider_url(
-    managers: &Arc<RwLock<Managers>>,
+    managers: &Managers,
     provider_id: &UniqueId,
     url_input_state: &Entity<InputState>,
     cx: &mut App,
@@ -41,7 +39,7 @@ fn save_provider_url(
 }
 
 fn save_provider_api_key(
-    managers: &Arc<RwLock<Managers>>,
+    managers: &Managers,
     provider_id: &UniqueId,
     api_key_input_state: &Entity<InputState>,
     cx: &mut App,
@@ -63,17 +61,17 @@ fn save_provider_api_key(
 #[derive(IntoElement)]
 pub struct ProviderSettings {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     provider_id: UniqueId,
-    provider: Arc<Provider>,
+    provider: std::sync::Arc<Provider>,
 }
 
 impl ProviderSettings {
     pub fn new(
         id: impl Into<ElementId>,
-        managers: Arc<RwLock<Managers>>,
+        managers: Managers,
         provider_id: UniqueId,
-        provider: Arc<Provider>,
+        provider: std::sync::Arc<Provider>,
     ) -> Self {
         Self {
             id: id.into(),
@@ -108,8 +106,8 @@ impl RenderOnce for ProviderSettings {
             |_window, cx| {
                 let api_key = self
                     .managers
-                    .read_arc_blocking()
                     .models
+                    .read_blocking()
                     .get_provider_api_key(cx, &self.provider_id)
                     .unwrap_or_default();
 
@@ -203,9 +201,9 @@ impl RenderOnce for ProviderSettings {
                 .p(px(8.))
                 .rounded(px(6.))
                 .on_click(move |_event, _window, cx| {
-                    let _ = managers
-                        .write_arc_blocking()
+                    managers
                         .models
+                        .write_blocking()
                         .delete_provider(cx, provider_id.clone());
                 })
         };

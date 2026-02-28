@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use gpui::{App, ElementId, Overflow, PointRefinement, Window, div, prelude::*, px, relative};
 use gpui_squircle::{SquircleStyled, squircle};
 use gpui_tesserae::{
@@ -8,7 +6,6 @@ use gpui_tesserae::{
     primitives::min_w0_wrapper,
     theme::{ThemeExt, ThemeLayerKind},
 };
-use smol::lock::RwLock;
 
 use crate::{
     blocks::{ModelPicker, models_menu::ModelSelectionSource},
@@ -19,11 +16,11 @@ use crate::{
 #[derive(IntoElement)]
 pub struct ChatTitlesPage {
     id: ElementId,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
 }
 
 impl ChatTitlesPage {
-    pub fn new(id: impl Into<ElementId>, managers: Arc<RwLock<Managers>>) -> Self {
+    pub fn new(id: impl Into<ElementId>, managers: Managers) -> Self {
         Self {
             id: id.into(),
             managers,
@@ -70,7 +67,7 @@ impl RenderOnce for ChatTitlesPage {
 
 fn render_model_picker(
     id: impl Into<ElementId>,
-    managers: Arc<RwLock<Managers>>,
+    managers: Managers,
     window: &mut Window,
     cx: &mut App,
 ) -> impl IntoElement {
@@ -87,7 +84,7 @@ fn render_model_picker(
     let padding = cx.get_theme().layout.padding.xl;
 
     // Get the models cache from the manager
-    let models_cache = managers.read_blocking().models.models_cache.clone();
+    let models_cache = managers.models.read_blocking().models_cache.clone();
 
     // Create model picker with custom on_item_click for chat titles page
     let managers_for_callback = managers.clone();
@@ -108,8 +105,7 @@ fn render_model_picker(
                 };
 
                 if let Some(selection) = selection {
-                    let mut managers = managers_for_callback.write_arc_blocking();
-                    managers.models.set_chat_titles_selection(
+                    managers_for_callback.models.write_blocking().set_chat_titles_selection(
                         cx,
                         selection.provider_id,
                         selection.provider_name,
