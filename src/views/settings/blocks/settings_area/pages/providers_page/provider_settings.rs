@@ -213,9 +213,10 @@ impl RenderOnce for ProviderSettings {
                 .p(px(8.))
                 .rounded(px(6.))
                 .on_click(move |_event, _window, cx| {
+                    let errors = managers.errors.clone();
                     managers
                         .models
-                        .update(cx, |models, cx| models.delete_provider(cx, provider_id.clone()));
+                        .update(cx, |models, cx| models.delete_provider(cx, provider_id.clone(), errors));
                 })
         };
 

@@ -74,8 +74,10 @@ fn main() {
                             ..Default::default()
                         },
                         |window, cx| {
+                            let window_handle = window.window_handle();
                             let chat_view = cx.new(move |cx| {
                                 let chat_view = ChatView::new("chat_view", managers);
+                                chat_view.observe_errors(window_handle, cx);
 
                                 cx.spawn({
                                     let managers = chat_view.managers.clone();

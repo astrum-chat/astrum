@@ -13,6 +13,7 @@ pub use bounds::*;
 mod colors;
 pub use colors::*;
 
+pub mod errors;
 pub mod search;
 
 mod pixels;

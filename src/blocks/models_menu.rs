@@ -3,7 +3,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use tracing::{debug, error, info};
+use tracing::{debug, info};
+
+use crate::utils::errors::push_error_async;
 
 use gpui::{
     App, AppContext, AsyncApp, ElementId, Entity, Hsla, IntoElement, SharedString, Window, div, prelude::*, px,
@@ -560,11 +562,10 @@ fn spawn_fetch_models(
                 });
             }
             Err(err) => {
-                error!(
-                    provider_name = %provider_name,
-                    provider_id = %provider_id,
-                    error = %err,
-                    "Failed to refetch models for provider"
+                push_error_async(
+                    &managers.errors,
+                    cx,
+                    format!("Failed to fetch models from {provider_name}: {err}"),
                 );
             }
         }
@@ -628,11 +629,10 @@ pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
                     });
                 }
                 Err(err) => {
-                    error!(
-                        provider_name = %provider_name,
-                        provider_id = %provider_id,
-                        error = %err,
-                        "Failed to prefetch models from provider"
+                    push_error_async(
+                        &managers.errors,
+                        cx,
+                        format!("Failed to fetch models from {provider_name}: {err}"),
                     );
                 }
             }
@@ -806,10 +806,10 @@ pub fn fetch_all_models_with_source(
                     });
                 }
                 Err(err) => {
-                    error!(
-                        provider_name = %provider_name,
-                        error = %err,
-                        "Failed to fetch models from provider"
+                    push_error_async(
+                        &managers.errors,
+                        cx,
+                        format!("Failed to fetch models from {provider_name}: {err}"),
                     );
                 }
             }

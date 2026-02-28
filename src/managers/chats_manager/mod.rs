@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use anyml::MessageRole;
 use futures::future::AbortHandle;
@@ -6,8 +6,11 @@ use gpui::{App, AppContext, Entity};
 use notitia::Notitia;
 use notitia_sqlite::SqliteAdapter;
 use smol::channel::Sender;
+use tracing::error;
 
 use schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord, UniqueId};
+
+use crate::utils::errors::push_error_async;
 
 /// A queued mutation to be executed sequentially per message.
 enum MessageMutation {
@@ -47,32 +50,38 @@ impl ChatsManager {
                 while let Ok(task) = rx.recv().await {
                     match task {
                         MessageMutation::AppendContent { chunk } => {
-                            db.mutate(
-                                AstrumDb::MESSAGES
-                                    .update(
-                                        MessageRecord::build()
-                                            .content(MessageRecord::CONTENT.concat(chunk))
-                                            .edited_at(DbDateTime::now()),
-                                    )
-                                    .filter(MessageRecord::ID.eq(id_clone.clone())),
-                            )
-                            .execute()
-                            .await
-                            .unwrap();
+                            if let Err(e) = db
+                                .mutate(
+                                    AstrumDb::MESSAGES
+                                        .update(
+                                            MessageRecord::build()
+                                                .content(MessageRecord::CONTENT.concat(chunk))
+                                                .edited_at(DbDateTime::now()),
+                                        )
+                                        .filter(MessageRecord::ID.eq(id_clone.clone())),
+                                )
+                                .execute()
+                                .await
+                            {
+                                error!("Failed to append message content: {e}");
+                            }
                         }
                         MessageMutation::SetTitle { title } => {
-                            db.mutate(
-                                AstrumDb::CHATS
-                                    .update(
-                                        ChatRecord::build()
-                                            .title(title)
-                                            .edited_at(DbDateTime::now()),
-                                    )
-                                    .filter(ChatRecord::ID.eq(id_clone.clone())),
-                            )
-                            .execute()
-                            .await
-                            .unwrap();
+                            if let Err(e) = db
+                                .mutate(
+                                    AstrumDb::CHATS
+                                        .update(
+                                            ChatRecord::build()
+                                                .title(title)
+                                                .edited_at(DbDateTime::now()),
+                                        )
+                                        .filter(ChatRecord::ID.eq(id_clone.clone())),
+                                )
+                                .execute()
+                                .await
+                            {
+                                error!("Failed to update chat title: {e}");
+                            }
                         }
                     }
                 }
@@ -128,7 +137,10 @@ impl ChatsManager {
     }
 
     /// Insert a new chat row into the DB.
-    pub async fn insert_chat(db: &Notitia<AstrumDb, SqliteAdapter>, chat_id: &UniqueId) {
+    pub async fn insert_chat(
+        db: &Notitia<AstrumDb, SqliteAdapter>,
+        chat_id: &UniqueId,
+    ) -> anyhow::Result<()> {
         let now = DbDateTime::now();
         db.mutate(
             AstrumDb::CHATS.insert(
@@ -140,8 +152,8 @@ impl ChatsManager {
             ),
         )
         .execute()
-        .await
-        .unwrap();
+        .await?;
+        Ok(())
     }
 
     /// Insert a message row and bump the chat's `edited_at`.
@@ -151,7 +163,7 @@ impl ChatsManager {
         chat_id: &UniqueId,
         content: &str,
         role: MessageRole,
-    ) {
+    ) -> anyhow::Result<()> {
         let now = DbDateTime::now();
         db.mutate(
             AstrumDb::MESSAGES.insert(
@@ -165,16 +177,15 @@ impl ChatsManager {
             ),
         )
         .execute()
-        .await
-        .unwrap();
+        .await?;
         db.mutate(
             AstrumDb::CHATS
                 .update(ChatRecord::build().edited_at(now))
                 .filter(ChatRecord::ID.eq(chat_id.clone())),
         )
         .execute()
-        .await
-        .unwrap();
+        .await?;
+        Ok(())
     }
 
     pub fn push_message_content(
@@ -190,7 +201,12 @@ impl ChatsManager {
     }
 
     /// Delete a chat and all its messages (cascade).
-    pub fn delete_chat(&mut self, cx: &mut App, chat_id: UniqueId) {
+    pub fn delete_chat(
+        &mut self,
+        cx: &mut App,
+        chat_id: UniqueId,
+        errors: Entity<VecDeque<String>>,
+    ) {
         // If deleting the current chat, cancel any active stream and clear selection
         if self.current_chat_id.read(cx).as_ref() == Some(&chat_id) {
             if *self.is_streaming.read(cx) {
@@ -206,15 +222,18 @@ impl ChatsManager {
 
         // Async delete from DB (messages cascade-delete via schema)
         let db = self.db().clone();
-        cx.spawn(async move |_cx| {
-            db.mutate(
-                AstrumDb::CHATS
-                    .delete()
-                    .filter(ChatRecord::ID.eq(chat_id)),
-            )
-            .execute()
-            .await
-            .unwrap();
+        cx.spawn(async move |cx: &mut gpui::AsyncApp| {
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::CHATS
+                        .delete()
+                        .filter(ChatRecord::ID.eq(chat_id)),
+                )
+                .execute()
+                .await
+            {
+                push_error_async(&errors, cx, format!("Failed to delete chat: {e}"));
+            }
         })
         .detach();
     }

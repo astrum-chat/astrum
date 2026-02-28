@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use gpui::{App, ElementId, Entity, IntoElement, RenderOnce, div, ease_out_quint, prelude::*, px};
@@ -17,6 +18,7 @@ use crate::{assets::AstrumIconKind, managers::ChatsManager};
 pub struct ThreadToggle {
     id: ElementId,
     chats: Entity<ChatsManager>,
+    errors: Entity<VecDeque<String>>,
     chat_id: UniqueId,
     title: String,
     checked: bool,
@@ -27,6 +29,7 @@ impl ThreadToggle {
     pub fn new(
         id: impl Into<ElementId>,
         chats: Entity<ChatsManager>,
+        errors: Entity<VecDeque<String>>,
         chat_id: UniqueId,
         title: String,
         checked: bool,
@@ -35,6 +38,7 @@ impl ThreadToggle {
         Self {
             id: id.into(),
             chats,
+            errors,
             chat_id,
             title,
             checked,
@@ -70,6 +74,7 @@ impl RenderOnce for ThreadToggle {
 
         let delete_chat_id = self.chat_id.clone();
         let chats = self.chats.clone();
+        let errors = self.errors.clone();
         let delete_button = div()
             .h_0()
             .flex()
@@ -85,7 +90,7 @@ impl RenderOnce for ThreadToggle {
                     .rounded(md_corner_radii - px((5f32 / 2.).floor()))
                     .on_click(move |_event, _window, cx| {
                         chats
-                            .update(cx, |chats, cx| chats.delete_chat(cx, delete_chat_id.clone()));
+                            .update(cx, |chats, cx| chats.delete_chat(cx, delete_chat_id.clone(), errors.clone()));
                     }),
             );
 

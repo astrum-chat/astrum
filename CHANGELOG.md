@@ -1,9 +1,12 @@
 ## Unreleased
 ## Features
 - Threads can now be deleted.
+- Errors are now surfaced to the user via native OS alert dialogs instead of silently failing.
 
 ## Fixes
 - Fixed UI freezing briefly when switching threads, sending messages, or managing providers.
+- Replaced all `.unwrap()` on DB operations with proper error handling to prevent silent panics.
+- Fixed `.ok()` silently swallowing model selection save failures.
 
 # v0.1.10
 ## Features

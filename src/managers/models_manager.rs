@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyml::{
@@ -10,6 +11,7 @@ use notitia::prelude::*;
 use notitia::{Notitia, PrimaryKey};
 use notitia_sqlite::SqliteAdapter;
 use secrecy::{ExposeSecret, SecretString};
+use tracing::error;
 
 pub trait ProviderTrait: ChatProvider + ListModelsProvider {}
 impl<T: ChatProvider + ListModelsProvider> ProviderTrait for T {}
@@ -165,6 +167,7 @@ impl<'a> ModelsManager {
         name: impl Into<String>,
         url: impl Into<String>,
         api_key: Option<SecretString>,
+        errors: Entity<VecDeque<String>>,
     ) -> UniqueId {
         let provider_id = UniqueId::new();
         let name = name.into();
@@ -187,21 +190,28 @@ impl<'a> ModelsManager {
         let name_clone = name.clone();
         let url_clone = url.clone();
 
-        cx.spawn(async move |_cx| {
-            db.mutate(
-                AstrumDb::PROVIDERS.insert(
-                    ProviderRecord::build()
-                        .id(provider_id_clone)
-                        .kind(kind_str)
-                        .name(name_clone)
-                        .url(url_clone)
-                        .created_at(now.clone())
-                        .edited_at(now),
-                ),
-            )
-            .execute()
-            .await
-            .unwrap();
+        cx.spawn(async move |cx: &mut AsyncApp| {
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::PROVIDERS.insert(
+                        ProviderRecord::build()
+                            .id(provider_id_clone)
+                            .kind(kind_str)
+                            .name(name_clone)
+                            .url(url_clone)
+                            .created_at(now.clone())
+                            .edited_at(now),
+                    ),
+                )
+                .execute()
+                .await
+            {
+                crate::utils::errors::push_error_async(
+                    &errors,
+                    cx,
+                    format!("Failed to save provider: {e}"),
+                );
+            }
         })
         .detach();
 
@@ -340,29 +350,36 @@ impl<'a> ModelsManager {
         let key = key.to_string();
         cx.spawn(async move |_cx| {
             // Use delete + insert since notitia doesn't have upsert
-            db.mutate(
-                AstrumDb::MODEL_SELECTIONS
-                    .delete()
-                    .filter(ModelSelectionRecord::KEY.eq(key.clone())),
-            )
-            .execute()
-            .await
-            .ok();
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::MODEL_SELECTIONS
+                        .delete()
+                        .filter(ModelSelectionRecord::KEY.eq(key.clone())),
+                )
+                .execute()
+                .await
+            {
+                error!("Failed to delete model selection '{}': {e}", key);
+                return;
+            }
 
-            db.mutate(
-                AstrumDb::MODEL_SELECTIONS.insert(
-                    ModelSelectionRecord::build()
-                        .key(key)
-                        .provider_id(provider_id)
-                        .provider_name(provider_name)
-                        .model(model)
-                        .parameters(parameters)
-                        .quantization(quantization),
-                ),
-            )
-            .execute()
-            .await
-            .ok();
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::MODEL_SELECTIONS.insert(
+                        ModelSelectionRecord::build()
+                            .key(key.clone())
+                            .provider_id(provider_id)
+                            .provider_name(provider_name)
+                            .model(model)
+                            .parameters(parameters)
+                            .quantization(quantization),
+                    ),
+                )
+                .execute()
+                .await
+            {
+                error!("Failed to save model selection '{}': {e}", key);
+            }
         })
         .detach();
     }
@@ -653,18 +670,21 @@ impl<'a> ModelsManager {
         let provider_id_clone = provider_id.clone();
         let url_clone = url.clone();
         cx.spawn(async move |_cx| {
-            db.mutate(
-                AstrumDb::PROVIDERS
-                    .update(
-                        ProviderRecord::build()
-                            .url(url_clone)
-                            .edited_at(DbDateTime::now()),
-                    )
-                    .filter(ProviderRecord::ID.eq(provider_id_clone)),
-            )
-            .execute()
-            .await
-            .unwrap();
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::PROVIDERS
+                        .update(
+                            ProviderRecord::build()
+                                .url(url_clone)
+                                .edited_at(DbDateTime::now()),
+                        )
+                        .filter(ProviderRecord::ID.eq(provider_id_clone)),
+                )
+                .execute()
+                .await
+            {
+                error!("Failed to update provider URL: {e}");
+            }
         })
         .detach();
 
@@ -678,20 +698,32 @@ impl<'a> ModelsManager {
         });
     }
 
-    pub fn delete_provider(&mut self, cx: &mut App, provider_id: UniqueId) {
+    pub fn delete_provider(
+        &mut self,
+        cx: &mut App,
+        provider_id: UniqueId,
+        errors: Entity<VecDeque<String>>,
+    ) {
         let provider = self.providers.read(cx).get(&provider_id).cloned();
 
         let db = self.db().clone();
         let provider_id_clone = provider_id.clone();
-        cx.spawn(async move |_cx| {
-            db.mutate(
-                AstrumDb::PROVIDERS
-                    .delete()
-                    .filter(ProviderRecord::ID.eq(provider_id_clone)),
-            )
-            .execute()
-            .await
-            .unwrap();
+        cx.spawn(async move |cx: &mut AsyncApp| {
+            if let Err(e) = db
+                .mutate(
+                    AstrumDb::PROVIDERS
+                        .delete()
+                        .filter(ProviderRecord::ID.eq(provider_id_clone)),
+                )
+                .execute()
+                .await
+            {
+                crate::utils::errors::push_error_async(
+                    &errors,
+                    cx,
+                    format!("Failed to delete provider: {e}"),
+                );
+            }
         })
         .detach();
 

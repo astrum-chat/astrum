@@ -21,7 +21,7 @@ use serde_json::value::RawValue;
 
 use schema::{AstrumDb, MessageRecord, UniqueId};
 
-use crate::{assets::AstrumIconKind, blocks::ModelPicker, managers::{Managers, ChatsManager}};
+use crate::{assets::AstrumIconKind, blocks::ModelPicker, managers::{Managers, ChatsManager}, utils::errors::push_error_async};
 
 mod existing_chat;
 mod md_render;
@@ -314,13 +314,12 @@ fn handle_submit(
 }
 
 fn spawn_title_generation(
-    models: &Entity<crate::managers::ModelsManager>,
-    chats: &Entity<ChatsManager>,
+    managers: &Managers,
     chat_id: &UniqueId,
     contents: &SharedString,
     cx: &mut App,
 ) {
-    let (chat_titles_provider, chat_titles_model) = models.read_with(cx, |models, cx| {
+    let (chat_titles_provider, chat_titles_model) = managers.models.read_with(cx, |models, cx| {
         (models.get_chat_titles_provider(cx).cloned(), models.get_chat_titles_model(cx).cloned())
     });
 
@@ -329,7 +328,8 @@ fn spawn_title_generation(
     };
 
     let user_message = contents.to_string();
-    let chats = chats.clone();
+    let chats = managers.chats.clone();
+    let errors = managers.errors.clone();
     let chat_id = chat_id.clone();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
@@ -344,19 +344,24 @@ fn spawn_title_generation(
         }];
         let options = ChatOptions::new(&model).messages(&messages);
 
-        if let Ok(mut response) = provider.inner.chat(&options).await {
-            let mut title = String::new();
-            while let Some(Ok(chunk)) = response.next().await {
-                if let ChatChunk::Content(text) = chunk {
-                    title.push_str(&text);
-                }
+        match provider.inner.chat(&options).await {
+            Ok(mut response) => {
+                let mut title = String::new();
+                while let Some(Ok(chunk)) = response.next().await {
+                    if let ChatChunk::Content(text) = chunk {
+                        title.push_str(&text);
+                    }
 
-                let current_title = title.trim().to_string();
-                if !current_title.is_empty() {
-                    let _ = chats.update(cx, |chats: &mut ChatsManager, cx| {
-                        chats.set_title(cx, &chat_id, &current_title);
-                    });
+                    let current_title = title.trim().to_string();
+                    if !current_title.is_empty() {
+                        let _ = chats.update(cx, |chats: &mut ChatsManager, cx| {
+                            chats.set_title(cx, &chat_id, &current_title);
+                        });
+                    }
                 }
+            }
+            Err(e) => {
+                push_error_async(&errors, cx, format!("Failed to generate chat title: {e}"));
             }
         }
 
@@ -400,25 +405,35 @@ fn send_message(
     });
 
     if is_new_chat {
-        spawn_title_generation(&managers.models, &managers.chats, &chat_id, &contents, cx);
+        spawn_title_generation(&managers, &chat_id, &contents, cx);
     }
 
     let chat_id_for_stream = chat_id.clone();
     let chats_for_cleanup = managers.chats.clone();
+    let errors = managers.errors.clone();
     let user_content = contents.to_string();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         let streaming_future = async {
             // Persist chat + messages to DB (sequential, no races)
             if is_new_chat {
-                ChatsManager::insert_chat(&db, &chat_id_for_stream).await;
+                if let Err(e) = ChatsManager::insert_chat(&db, &chat_id_for_stream).await {
+                    push_error_async(&errors, cx, format!("Failed to create chat: {e}"));
+                    return;
+                }
             }
-            ChatsManager::insert_message(
+            if let Err(e) = ChatsManager::insert_message(
                 &db, &UniqueId::new(), &chat_id_for_stream, &user_content, MessageRole::User,
-            ).await;
-            ChatsManager::insert_message(
+            ).await {
+                push_error_async(&errors, cx, format!("Failed to save message: {e}"));
+                return;
+            }
+            if let Err(e) = ChatsManager::insert_message(
                 &db, &assistant_msg_id, &chat_id_for_stream, "", MessageRole::Assistant,
-            ).await;
+            ).await {
+                push_error_async(&errors, cx, format!("Failed to save message: {e}"));
+                return;
+            }
 
             let messages_result = db
                 .query(
@@ -431,8 +446,12 @@ fn send_message(
                 .execute()
                 .await;
 
-            let Ok(messages_data) = messages_result else {
-                return;
+            let messages_data = match messages_result {
+                Ok(data) => data,
+                Err(e) => {
+                    push_error_async(&errors, cx, format!("Failed to load messages: {e}"));
+                    return;
+                }
             };
 
             let api_messages: Vec<Message> = messages_data

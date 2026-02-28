@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use gpui::{App, AppContext, Entity};
 use notitia::Notitia;
 use notitia_sqlite::SqliteAdapter;
@@ -29,6 +31,7 @@ pub struct Managers {
     pub chats: Entity<ChatsManager>,
     pub persistence: PersistenceManager,
     pub available_update: Entity<Option<ReleaseInfo>>,
+    pub errors: Entity<VecDeque<String>>,
 }
 
 impl Managers {
@@ -40,6 +43,7 @@ impl Managers {
             chats: cx.new(|cx| ChatsManager::new(cx)),
             persistence: PersistenceManager::new(),
             available_update: update.available_update,
+            errors: cx.new(|_cx| VecDeque::new()),
         }
     }
 

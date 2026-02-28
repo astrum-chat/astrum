@@ -226,6 +226,7 @@ impl RenderOnce for Sidebar {
                             ThreadToggle::new(
                                 list_id.with_suffix(format!("thread_{}", chat_id)),
                                 managers.chats.clone(),
+                                managers.errors.clone(),
                                 chat_id.clone(),
                                 chat_title,
                                 current_id.as_ref() == Some(chat_id),

@@ -1,4 +1,4 @@
-use gpui::{ElementId, Window, prelude::*};
+use gpui::{AnyWindowHandle, ElementId, PromptLevel, Window, prelude::*};
 use gpui_tesserae::ElementIdExt;
 
 use crate::{managers::Managers, views::BaseView};
@@ -17,6 +17,25 @@ impl ChatView {
             id: id.into(),
             managers,
         }
+    }
+
+    pub fn observe_errors(&self, window_handle: AnyWindowHandle, cx: &mut Context<Self>) {
+        let errors = self.managers.errors.clone();
+        cx.observe(&errors, move |_this, errors, cx| {
+            let message = errors.update(cx, |errors, _cx| errors.pop_front());
+            if let Some(message) = message {
+                let _ = window_handle.update(cx, |_, window, cx| {
+                    let _ = window.prompt(
+                        PromptLevel::Critical,
+                        "Error",
+                        Some(&message),
+                        &["OK"],
+                        cx,
+                    );
+                });
+            }
+        })
+        .detach();
     }
 }
 

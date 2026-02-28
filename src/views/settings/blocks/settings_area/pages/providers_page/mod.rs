@@ -66,8 +66,9 @@ impl RenderOnce for ProvidersPage {
             let name = kind.default_name();
             let url = kind.default_url();
 
+            let errors = managers.errors.clone();
             let provider_id = managers.models.update(cx, |models, cx| {
-                models.new_provider(cx, kind, name, url, None)
+                models.new_provider(cx, kind, name, url, None, errors)
             });
 
             // Fetch models for the newly created provider
