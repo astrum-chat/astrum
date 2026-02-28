@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::{
     blocks::models_menu::prefetch_all_models,
-    managers::{Managers, UpdateManager},
+    managers::{Managers, ModelsManager, UpdateManager},
     views::SettingsView,
 };
 
@@ -85,9 +85,21 @@ fn main() {
                                             .await
                                             .unwrap();
 
-                                        let _ = cx.update(|cx| {
-                                            managers.init_with_db(cx, db);
+                                        // Store DB handles (sync, fast)
+                                        {
+                                            let managers = managers.clone();
+                                            let db = db.clone();
+                                            let _ = cx.update(move |cx| {
+                                                managers.init_with_db(cx, db);
+                                            });
+                                        }
 
+                                        // Load providers + model selections asynchronously
+                                        let models_entity = managers.models.clone();
+                                        ModelsManager::load_from_db(models_entity, db, cx).await;
+
+                                        // Prefetch models + check for updates (providers now loaded)
+                                        let _ = cx.update(move |cx| {
                                             prefetch_all_models(managers.clone(), cx);
 
                                             let http_client = cx.http_client();

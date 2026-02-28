@@ -3,8 +3,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use sha2::{Digest, Sha256};
-
 use tracing::{debug, error, info};
 
 use gpui::{
@@ -17,7 +15,7 @@ use gpui_tesserae::{
 };
 use anyml::models::{Model, ModelParams, ModelQuant};
 
-use crate::{managers::{Managers, Provider}, utils::FrontInsertMap};
+use crate::{managers::{Managers, ModelsManager, Provider}, utils::FrontInsertMap};
 use schema::UniqueId;
 
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
@@ -121,16 +119,15 @@ impl ModelsCache {
     }
 
     /// Get or create cached config state for a provider.
-    /// If no cache exists, creates one with the current values.
+    /// If no cache exists, creates one with the current URL.
     fn get_or_create_config_cache(
         &mut self,
         provider_id: &UniqueId,
         current_url: &str,
-        current_api_key: &str,
     ) -> &mut CachedProviderState {
         self.provider_config_cache
             .entry(provider_id.clone())
-            .or_insert_with(|| CachedProviderState::new(current_url, current_api_key))
+            .or_insert_with(|| CachedProviderState::new(current_url))
     }
 
     fn rebuild_all_models(&mut self) {
@@ -151,23 +148,15 @@ impl ModelsCache {
     }
 }
 
-fn hash_api_key(api_key: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(api_key.as_bytes());
-    hasher.finalize().into()
-}
-
 #[derive(Clone)]
 struct CachedProviderState {
     url: String,
-    api_key_hash: [u8; 32],
 }
 
 impl CachedProviderState {
-    pub fn new(url: impl Into<String>, api_key: &str) -> Self {
+    pub fn new(url: impl Into<String>) -> Self {
         Self {
             url: url.into(),
-            api_key_hash: hash_api_key(api_key),
         }
     }
 
@@ -175,16 +164,8 @@ impl CachedProviderState {
         self.url != new_url
     }
 
-    pub fn api_key_changed(&self, new_api_key: &str) -> bool {
-        self.api_key_hash != hash_api_key(new_api_key)
-    }
-
     pub fn set_url(&mut self, url: impl Into<String>) {
         self.url = url.into();
-    }
-
-    pub fn set_api_key(&mut self, api_key: &str) {
-        self.api_key_hash = hash_api_key(api_key);
     }
 }
 
@@ -468,21 +449,17 @@ fn check_and_update_config_cache(
     config_change: &ProviderConfigChange,
     cx: &mut App,
 ) -> bool {
-    let (current_url, current_api_key) = managers.models.read_with(cx, |models, cx| {
-        let url = models.providers
+    let current_url = managers.models.read_with(cx, |models, cx| {
+        models.providers
             .read(cx)
             .get(provider_id)
             .map(|p| p.url.read(cx).to_string())
-            .unwrap_or_default();
-        let api_key = models
-            .get_provider_api_key(cx, provider_id)
-            .unwrap_or_default();
-        (url, api_key)
+            .unwrap_or_default()
     });
 
     models_cache.update(cx, |cache, _| {
         let config_cache =
-            cache.get_or_create_config_cache(provider_id, &current_url, &current_api_key);
+            cache.get_or_create_config_cache(provider_id, &current_url);
 
         match config_change {
             ProviderConfigChange::Create => true,
@@ -493,14 +470,8 @@ fn check_and_update_config_cache(
                 }
                 changed
             }
-            ProviderConfigChange::ApiKey(api_key) => {
-                let key = api_key.as_deref().unwrap_or("");
-                let changed = config_cache.api_key_changed(key);
-                if changed {
-                    config_cache.set_api_key(key);
-                }
-                changed
-            }
+            // API key changes always proceed — no caching of secrets
+            ProviderConfigChange::ApiKey(_) => true,
         }
     })
 }
@@ -526,8 +497,14 @@ fn apply_config_change(
                 );
             }
         }
-        let _ = models.reinit_provider(cx, provider_id);
     });
+
+    let models = managers.models.clone();
+    let provider_id = provider_id.clone();
+    cx.spawn(async move |cx: &mut AsyncApp| {
+        ModelsManager::reinit_provider(models, provider_id, cx).await;
+    })
+    .detach();
 }
 
 fn spawn_fetch_models(

@@ -383,17 +383,12 @@ fn send_message(
 
         let (chat_id, is_new_chat) = match current_chat_id {
             Some(id) => (id, false),
-            None => {
-                let id = chats.create_chat(cx);
-                (id, true)
-            }
+            None => (UniqueId::new(), true),
         };
 
         chats.set_current_chat(cx, chat_id.clone());
 
-        let _user_msg_id =
-            chats.push_message(&chat_id, contents.as_ref(), MessageRole::User);
-        let assistant_msg_id = chats.push_message(&chat_id, "", MessageRole::Assistant);
+        let assistant_msg_id = UniqueId::new();
 
         chats.set_streaming(cx, true);
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
@@ -410,9 +405,21 @@ fn send_message(
 
     let chat_id_for_stream = chat_id.clone();
     let chats_for_cleanup = managers.chats.clone();
+    let user_content = contents.to_string();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
         let streaming_future = async {
+            // Persist chat + messages to DB (sequential, no races)
+            if is_new_chat {
+                ChatsManager::insert_chat(&db, &chat_id_for_stream).await;
+            }
+            ChatsManager::insert_message(
+                &db, &UniqueId::new(), &chat_id_for_stream, &user_content, MessageRole::User,
+            ).await;
+            ChatsManager::insert_message(
+                &db, &assistant_msg_id, &chat_id_for_stream, "", MessageRole::Assistant,
+            ).await;
+
             let messages_result = db
                 .query(
                     AstrumDb::MESSAGES

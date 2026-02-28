@@ -127,68 +127,54 @@ impl ChatsManager {
         self.set_streaming(cx, false);
     }
 
-    /// Create a new chat and return its ID.
-    pub fn create_chat(&self, cx: &mut App) -> UniqueId {
-        let chat_id = UniqueId::new();
+    /// Insert a new chat row into the DB.
+    pub async fn insert_chat(db: &Notitia<AstrumDb, SqliteAdapter>, chat_id: &UniqueId) {
         let now = DbDateTime::now();
-        let db = self.db().clone();
-        let chat_id_clone = chat_id.clone();
-        smol::block_on(async {
-            db.mutate(
-                AstrumDb::CHATS.insert(
-                    ChatRecord::build()
-                        .id(chat_id_clone)
-                        .title("Untitled Chat")
-                        .created_at(now.clone())
-                        .edited_at(now),
-                ),
-            )
-            .execute()
-            .await
-            .unwrap();
-        });
-        chat_id
+        db.mutate(
+            AstrumDb::CHATS.insert(
+                ChatRecord::build()
+                    .id(chat_id.clone())
+                    .title("Untitled Chat")
+                    .created_at(now.clone())
+                    .edited_at(now),
+            ),
+        )
+        .execute()
+        .await
+        .unwrap();
     }
 
-    /// Insert a message and bump the chat's `edited_at`.
-    pub fn push_message(
-        &self,
+    /// Insert a message row and bump the chat's `edited_at`.
+    pub async fn insert_message(
+        db: &Notitia<AstrumDb, SqliteAdapter>,
+        msg_id: &UniqueId,
         chat_id: &UniqueId,
-        content: impl Into<String>,
+        content: &str,
         role: MessageRole,
-    ) -> UniqueId {
-        let msg_id = UniqueId::new();
+    ) {
         let now = DbDateTime::now();
-        let db = self.db().clone();
-        let chat_id = chat_id.clone();
-        let content = content.into();
-        let msg_id_clone = msg_id.clone();
-        smol::block_on(async {
-            db.mutate(
-                AstrumDb::MESSAGES.insert(
-                    MessageRecord::build()
-                        .id(msg_id_clone)
-                        .chat_id(chat_id.clone())
-                        .role(role.as_str())
-                        .content(content)
-                        .created_at(now.clone())
-                        .edited_at(now.clone()),
-                ),
-            )
-            .execute()
-            .await
-            .unwrap();
-            // Bump chat's edited_at
-            db.mutate(
-                AstrumDb::CHATS
-                    .update(ChatRecord::build().edited_at(now))
-                    .filter(ChatRecord::ID.eq(chat_id)),
-            )
-            .execute()
-            .await
-            .unwrap();
-        });
-        msg_id
+        db.mutate(
+            AstrumDb::MESSAGES.insert(
+                MessageRecord::build()
+                    .id(msg_id.clone())
+                    .chat_id(chat_id.clone())
+                    .role(role.as_str())
+                    .content(content)
+                    .created_at(now.clone())
+                    .edited_at(now.clone()),
+            ),
+        )
+        .execute()
+        .await
+        .unwrap();
+        db.mutate(
+            AstrumDb::CHATS
+                .update(ChatRecord::build().edited_at(now))
+                .filter(ChatRecord::ID.eq(chat_id.clone())),
+        )
+        .execute()
+        .await
+        .unwrap();
     }
 
     pub fn push_message_content(

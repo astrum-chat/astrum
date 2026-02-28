@@ -103,17 +103,29 @@ impl RenderOnce for ProviderSettings {
         let api_key_input_state = window.use_keyed_state(
             self.id.with_suffix("state:api_key_input"),
             cx,
-            |_window, cx| {
-                let api_key = self
-                    .managers
-                    .models
-                    .read(cx)
-                    .get_provider_api_key(cx, &self.provider_id)
-                    .unwrap_or_default();
-
-                InputState::new(cx).initial_value(api_key)
-            },
+            |_window, cx| InputState::new(cx),
         );
+
+        // Async-load the API key into the input (initial_value only sets when None,
+        // so this effectively runs once on first render)
+        if api_key_input_state.read(cx).value.is_none() {
+            let task = self
+                .managers
+                .models
+                .read(cx)
+                .get_provider_api_key(cx, &self.provider_id);
+            let state = api_key_input_state.clone();
+            cx.spawn(async move |cx: &mut gpui::AsyncApp| {
+                if let Some(api_key) = task.await {
+                    state.update(cx, |state, _cx| {
+                        if state.value.is_none() {
+                            state.value = Some(gpui::SharedString::from(api_key));
+                        }
+                    });
+                }
+            })
+            .detach();
+        }
 
         let bottom_section_content_height = window.use_keyed_state(
             self.id.with_suffix("state:settings_height"),
