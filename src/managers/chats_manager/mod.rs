@@ -24,6 +24,7 @@ pub struct ChatsManager {
     pub is_streaming: Entity<bool>,
     pub streaming_abort_handle: Entity<Option<AbortHandle>>,
     mutation_queues: HashMap<UniqueId, Sender<MessageMutation>>,
+    title_abort_handles: HashMap<UniqueId, AbortHandle>,
 }
 
 impl ChatsManager {
@@ -34,6 +35,7 @@ impl ChatsManager {
             is_streaming: cx.new(|_cx| false),
             streaming_abort_handle: cx.new(|_cx| None),
             mutation_queues: HashMap::new(),
+            title_abort_handles: HashMap::new(),
         }
     }
 
@@ -136,6 +138,20 @@ impl ChatsManager {
         self.set_streaming(cx, false);
     }
 
+    pub fn set_title_abort_handle(&mut self, chat_id: UniqueId, handle: AbortHandle) {
+        self.title_abort_handles.insert(chat_id, handle);
+    }
+
+    pub fn cancel_title_generation(&mut self, chat_id: &UniqueId) {
+        if let Some(handle) = self.title_abort_handles.remove(chat_id) {
+            handle.abort();
+        }
+    }
+
+    pub fn clear_title_abort_handle(&mut self, chat_id: &UniqueId) {
+        self.title_abort_handles.remove(chat_id);
+    }
+
     /// Insert a new chat row into the DB.
     pub async fn insert_chat(
         db: &Notitia<AstrumDb, SqliteAdapter>,
@@ -218,6 +234,7 @@ impl ChatsManager {
             });
         }
 
+        self.cancel_title_generation(&chat_id);
         self.drop_mutation_queue(&chat_id);
 
         // Async delete from DB (messages cascade-delete via schema)

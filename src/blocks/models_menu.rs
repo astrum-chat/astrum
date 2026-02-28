@@ -3,9 +3,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
-use crate::utils::errors::push_error_async;
 
 use gpui::{
     App, AppContext, AsyncApp, ElementId, Entity, Hsla, IntoElement, SharedString, Window, div, prelude::*, px,
@@ -23,6 +22,23 @@ use schema::UniqueId;
 const MODEL_FETCH_COOLDOWN_SECS: u64 = 120;
 
 static FETCH_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+struct FetchGuard;
+
+impl FetchGuard {
+    fn try_acquire() -> Option<Self> {
+        FETCH_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| FetchGuard)
+    }
+}
+
+impl Drop for FetchGuard {
+    fn drop(&mut self) {
+        FETCH_IN_PROGRESS.store(false, Ordering::Release);
+    }
+}
 
 #[derive(Clone)]
 pub struct CachedModel {
@@ -562,11 +578,7 @@ fn spawn_fetch_models(
                 });
             }
             Err(err) => {
-                push_error_async(
-                    &managers.errors,
-                    cx,
-                    format!("Failed to fetch models from {provider_name}: {err}"),
-                );
+                error!(provider_name = %provider_name, error = %err, "Failed to fetch models from provider");
             }
         }
     })
@@ -574,13 +586,14 @@ fn spawn_fetch_models(
 }
 
 pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
-    if FETCH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+    let Some(guard) = FetchGuard::try_acquire() else {
         return;
-    }
+    };
 
     debug!("Prefetching models from all providers");
 
     cx.spawn(async move |cx: &mut AsyncApp| {
+        let _guard = guard;
         let (providers_info, models_cache): (
             Vec<(UniqueId, crate::managers::Provider)>,
             Entity<ModelsCache>,
@@ -629,16 +642,11 @@ pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
                     });
                 }
                 Err(err) => {
-                    push_error_async(
-                        &managers.errors,
-                        cx,
-                        format!("Failed to fetch models from {provider_name}: {err}"),
-                    );
-                }
+                error!(provider_name = %provider_name, error = %err, "Failed to fetch models from provider");
+            }
             }
         }
 
-        FETCH_IN_PROGRESS.store(false, Ordering::SeqCst);
         debug!("Prefetch complete");
     })
     .detach();
@@ -698,9 +706,9 @@ pub fn fetch_all_models_with_source(
     source: ModelSelectionSource,
     cx: &mut App,
 ) {
-    if FETCH_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+    let Some(guard) = FetchGuard::try_acquire() else {
         return;
-    }
+    };
 
     let (current_provider_id, current_model): (Option<UniqueId>, Option<String>) = managers.models.read_with(cx, |models, cx| {
         let pair = match source {
@@ -712,6 +720,7 @@ pub fn fetch_all_models_with_source(
     });
 
     cx.spawn(async move |cx: &mut AsyncApp| {
+        let _guard = guard;
         let providers_info: Vec<(UniqueId, crate::managers::Provider)> = cx.read_entity(&managers.models, |models, cx| {
             models.providers
                 .read(cx)
@@ -806,16 +815,11 @@ pub fn fetch_all_models_with_source(
                     });
                 }
                 Err(err) => {
-                    push_error_async(
-                        &managers.errors,
-                        cx,
-                        format!("Failed to fetch models from {provider_name}: {err}"),
-                    );
-                }
+                error!(provider_name = %provider_name, error = %err, "Failed to fetch models from provider");
+            }
             }
         }
 
-        FETCH_IN_PROGRESS.store(false, Ordering::SeqCst);
     })
     .detach();
 }
