@@ -225,7 +225,7 @@ fn render_prompt_create_first_provider(cx: &App) -> impl IntoElement {
         .justify_center()
         .child(
             div().w_full().min_w_0().h_auto().text_center().child(
-                "Press the '+' button in the top right corner to add an inferance provider.",
+                "Press the '+' button in the top right corner to add an inference provider.",
             ),
         )
 }

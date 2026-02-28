@@ -196,9 +196,7 @@ fn send_message(
                 .collect();
 
             let messages_json = serde_json::to_string(&api_messages).unwrap();
-            let messages_raw = unsafe {
-                std::mem::transmute::<Box<str>, Box<RawValue>>(messages_json.into_boxed_str())
-            };
+            let messages_raw = RawValue::from_string(messages_json).unwrap();
 
             let options = ChatOptions::new(&current_model).messages_serialized(messages_raw);
             let response = current_provider.inner.chat(&options).await;
