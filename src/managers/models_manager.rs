@@ -53,6 +53,45 @@ impl ProviderModelPair {
             self.quantization.read(cx).clone(),
         )
     }
+
+    pub fn set(
+        &self,
+        cx: &mut App,
+        provider_id: &UniqueId,
+        provider_name: &str,
+        model: &str,
+        parameters: &Option<String>,
+        quantization: &Option<String>,
+    ) {
+        cx.update_entity(&self.provider_id, |pid, cx| {
+            *pid = Some(provider_id.clone());
+            cx.notify();
+        });
+        cx.update_entity(&self.provider_name, |pname, cx| {
+            *pname = Some(provider_name.to_string());
+            cx.notify();
+        });
+        cx.update_entity(&self.model, |m, cx| {
+            *m = Some(model.to_string());
+            cx.notify();
+        });
+        cx.update_entity(&self.parameters, |p, cx| {
+            *p = parameters.clone();
+            cx.notify();
+        });
+        cx.update_entity(&self.quantization, |q, cx| {
+            *q = quantization.clone();
+            cx.notify();
+        });
+    }
+
+    pub fn clear(&self, cx: &mut App) {
+        cx.update_entity(&self.provider_id, |pid, cx| { *pid = None; cx.notify(); });
+        cx.update_entity(&self.provider_name, |pname, cx| { *pname = None; cx.notify(); });
+        cx.update_entity(&self.model, |m, cx| { *m = None; cx.notify(); });
+        cx.update_entity(&self.parameters, |p, cx| { *p = None; cx.notify(); });
+        cx.update_entity(&self.quantization, |q, cx| { *q = None; cx.notify(); });
+    }
 }
 
 pub struct ModelsManager {
@@ -114,37 +153,7 @@ impl<'a> ModelsManager {
         let provider_name = provider_name.into();
         let model = model.into();
 
-        cx.update_entity(
-            &self.current_model.provider_id,
-            |current_provider_id, cx| {
-                *current_provider_id = Some(provider_id.clone());
-                cx.notify();
-            },
-        );
-
-        cx.update_entity(
-            &self.current_model.provider_name,
-            |current_provider_name, cx| {
-                *current_provider_name = Some(provider_name.clone());
-                cx.notify();
-            },
-        );
-
-        cx.update_entity(&self.current_model.model, |current_model, cx| {
-            *current_model = Some(model.clone());
-            cx.notify();
-        });
-
-        cx.update_entity(&self.current_model.parameters, |current_params, cx| {
-            *current_params = parameters.clone();
-            cx.notify();
-        });
-
-        cx.update_entity(&self.current_model.quantization, |current_quant, cx| {
-            *current_quant = quantization.clone();
-            cx.notify();
-        });
-
+        self.current_model.set(cx, &provider_id, &provider_name, &model, &parameters, &quantization);
         self.save_model_selection(
             cx,
             "current",
@@ -226,53 +235,12 @@ impl<'a> ModelsManager {
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
-        cx.update_entity(&self.current_model.provider_id, |provider_id, cx| {
-            *provider_id = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.current_model.provider_name, |provider_name, cx| {
-            *provider_name = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.current_model.model, |model, cx| {
-            *model = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.current_model.parameters, |params, cx| {
-            *params = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.current_model.quantization, |quant, cx| {
-            *quant = None;
-            cx.notify();
-        });
+        self.current_model.clear(cx);
         self.save_model_selection(cx, "current", None, None, None, None, None);
     }
 
     pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
-        cx.update_entity(&self.chat_titles_model.provider_id, |provider_id, cx| {
-            *provider_id = None;
-            cx.notify();
-        });
-        cx.update_entity(
-            &self.chat_titles_model.provider_name,
-            |provider_name, cx| {
-                *provider_name = None;
-                cx.notify();
-            },
-        );
-        cx.update_entity(&self.chat_titles_model.model, |model, cx| {
-            *model = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.chat_titles_model.parameters, |params, cx| {
-            *params = None;
-            cx.notify();
-        });
-        cx.update_entity(&self.chat_titles_model.quantization, |quant, cx| {
-            *quant = None;
-            cx.notify();
-        });
+        self.chat_titles_model.clear(cx);
         self.save_model_selection(cx, "chat_titles", None, None, None, None, None);
     }
 
@@ -295,32 +263,8 @@ impl<'a> ModelsManager {
     ) {
         let provider_name = provider_name.into();
         let model = model.into();
-        cx.update_entity(
-            &self.chat_titles_model.provider_id,
-            |current_provider_id, cx| {
-                *current_provider_id = Some(provider_id.clone());
-                cx.notify();
-            },
-        );
-        cx.update_entity(
-            &self.chat_titles_model.provider_name,
-            |current_provider_name, cx| {
-                *current_provider_name = Some(provider_name.clone());
-                cx.notify();
-            },
-        );
-        cx.update_entity(&self.chat_titles_model.model, |current_model, cx| {
-            *current_model = Some(model.clone());
-            cx.notify();
-        });
-        cx.update_entity(&self.chat_titles_model.parameters, |current_params, cx| {
-            *current_params = parameters.clone();
-            cx.notify();
-        });
-        cx.update_entity(&self.chat_titles_model.quantization, |current_quant, cx| {
-            *current_quant = quantization.clone();
-            cx.notify();
-        });
+
+        self.chat_titles_model.set(cx, &provider_id, &provider_name, &model, &parameters, &quantization);
         self.save_model_selection(
             cx,
             "chat_titles",
