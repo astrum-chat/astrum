@@ -13,7 +13,7 @@ use schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord, UniqueId};
 use crate::utils::errors::push_error_async;
 
 /// Delimiter used to separate thinking blocks from content in the DB.
-pub const THINK_DELIMITER: &str = "<|think|>";
+pub const THINK_DELIMITER: &str = "\n<|think|>\n";
 
 /// Tracks the kind of the last streamed chunk for a message.
 #[derive(Clone, Copy, PartialEq, Eq)]

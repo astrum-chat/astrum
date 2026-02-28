@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_thinking_then_content() {
-        let content = "<|think|>thinking here<|think|>response here";
+        let content = "\n<|think|>\nthinking here\n<|think|>\nresponse here";
         let blocks = parse_content_blocks(content);
         assert_eq!(blocks.len(), 2);
         assert!(matches!(blocks[0], ContentBlock::Thinking("thinking here")));
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_multiple_thinking_blocks() {
-        let content = "<|think|>think1<|think|>content1<|think|>think2<|think|>content2";
+        let content = "\n<|think|>\nthink1\n<|think|>\ncontent1\n<|think|>\nthink2\n<|think|>\ncontent2";
         let blocks = parse_content_blocks(content);
         assert_eq!(blocks.len(), 4);
         assert!(matches!(blocks[0], ContentBlock::Thinking("think1")));
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_content_first_then_thinking() {
-        let content = "content first<|think|>then thinking<|think|>more content";
+        let content = "content first\n<|think|>\nthen thinking\n<|think|>\nmore content";
         let blocks = parse_content_blocks(content);
         assert_eq!(blocks.len(), 3);
         assert!(matches!(blocks[0], ContentBlock::Content("content first")));
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn test_empty_segments_skipped() {
-        let content = "<|think|><|think|>content";
+        let content = "\n<|think|>\n\n<|think|>\ncontent";
         let blocks = parse_content_blocks(content);
         assert_eq!(blocks.len(), 1);
         assert!(matches!(blocks[0], ContentBlock::Content("content")));
