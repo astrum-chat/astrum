@@ -1,4 +1,4 @@
-## v0.1.11
+# v0.1.11
 ## Features
 - Threads can now be deleted.
 - A system prompt can now be configured in settings.
