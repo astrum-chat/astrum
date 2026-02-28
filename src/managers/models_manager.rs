@@ -811,3 +811,130 @@ impl Provider {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use notitia::prelude::*;
+    use notitia::{Notitia, PrimaryKey};
+    use notitia_sqlite::SqliteAdapter;
+    use schema::{AstrumDb, ModelSelectionRecord, UniqueId};
+
+    async fn test_db() -> Notitia<AstrumDb, SqliteAdapter> {
+        AstrumDb::connect::<SqliteAdapter>("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory test DB")
+    }
+
+    async fn upsert_selection(
+        db: &Notitia<AstrumDb, SqliteAdapter>,
+        key: &str,
+        provider_id: Option<UniqueId>,
+        provider_name: Option<String>,
+        model: Option<String>,
+    ) -> anyhow::Result<()> {
+        db.mutate(
+            AstrumDb::MODEL_SELECTIONS
+                .delete()
+                .filter(ModelSelectionRecord::KEY.eq(key.to_string())),
+        )
+        .execute()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        db.mutate(
+            AstrumDb::MODEL_SELECTIONS.insert(
+                ModelSelectionRecord::build()
+                    .key(key.to_string())
+                    .provider_id(provider_id)
+                    .provider_name(provider_name)
+                    .model(model)
+                    .parameters(None::<String>)
+                    .quantization(None::<String>),
+            ),
+        )
+        .execute()
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        Ok(())
+    }
+
+    async fn query_selection(
+        db: &Notitia<AstrumDb, SqliteAdapter>,
+        key: &str,
+    ) -> Option<(String, Option<String>)> {
+        let result: Result<(PrimaryKey<String>, Option<String>), _> = db
+            .query(
+                AstrumDb::MODEL_SELECTIONS
+                    .select((ModelSelectionRecord::KEY, ModelSelectionRecord::MODEL))
+                    .filter(ModelSelectionRecord::KEY.eq(key.to_string()))
+                    .fetch_one(),
+            )
+            .execute()
+            .await;
+        result.ok().map(|(pk, model): (PrimaryKey<String>, Option<String>)| (pk.into_inner(), model))
+    }
+
+    #[test]
+    fn test_insert_new_model_selection() {
+        smol::block_on(async {
+            let db = test_db().await;
+            upsert_selection(&db, "current", Some(UniqueId::new()), Some("OpenAI".into()), Some("gpt-4".into()))
+                .await
+                .unwrap();
+
+            let result = query_selection(&db, "current").await;
+            assert!(result.is_some());
+            let (key, model) = result.unwrap();
+            assert_eq!(key, "current");
+            assert_eq!(model, Some("gpt-4".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_upsert_overwrites_existing_selection() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let pid = UniqueId::new();
+
+            upsert_selection(&db, "current", Some(pid.clone()), Some("OpenAI".into()), Some("gpt-4".into()))
+                .await
+                .unwrap();
+
+            upsert_selection(&db, "current", Some(pid), Some("OpenAI".into()), Some("gpt-4o".into()))
+                .await
+                .unwrap();
+
+            let (_, model) = query_selection(&db, "current").await.unwrap();
+            assert_eq!(model, Some("gpt-4o".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_different_keys_are_independent() {
+        smol::block_on(async {
+            let db = test_db().await;
+
+            upsert_selection(&db, "current", None, None, Some("gpt-4".into()))
+                .await
+                .unwrap();
+            upsert_selection(&db, "chat_titles", None, None, Some("gpt-3.5".into()))
+                .await
+                .unwrap();
+
+            let (_, m1) = query_selection(&db, "current").await.unwrap();
+            let (_, m2) = query_selection(&db, "chat_titles").await.unwrap();
+            assert_eq!(m1, Some("gpt-4".to_string()));
+            assert_eq!(m2, Some("gpt-3.5".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_delete_nonexistent_key_does_not_error() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let result = upsert_selection(&db, "nonexistent", None, None, Some("model".into())).await;
+            assert!(result.is_ok());
+        });
+    }
+}

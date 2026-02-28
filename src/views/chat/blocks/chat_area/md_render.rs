@@ -313,6 +313,60 @@ fn parse_link_token(raw: &str) -> Option<(&str, &str)> {
     Some((text, url))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::parse_link_token;
+
+    #[test]
+    fn test_complete_link() {
+        assert_eq!(
+            parse_link_token("[click here](https://example.com)"),
+            Some(("click here", "https://example.com"))
+        );
+    }
+
+    #[test]
+    fn test_streaming_link_no_closing_paren() {
+        assert_eq!(
+            parse_link_token("[text](https://example.com/path"),
+            Some(("text", "https://example.com/path"))
+        );
+    }
+
+    #[test]
+    fn test_empty_text() {
+        assert_eq!(
+            parse_link_token("[](https://example.com)"),
+            Some(("", "https://example.com"))
+        );
+    }
+
+    #[test]
+    fn test_empty_url() {
+        assert_eq!(parse_link_token("[text]()"), Some(("text", "")));
+    }
+
+    #[test]
+    fn test_empty_text_and_url() {
+        assert_eq!(parse_link_token("[]()"), Some(("", "")));
+    }
+
+    #[test]
+    fn test_missing_opening_bracket() {
+        assert_eq!(parse_link_token("text](url)"), None);
+    }
+
+    #[test]
+    fn test_missing_closing_bracket() {
+        assert_eq!(parse_link_token("[text(url)"), None);
+    }
+
+    #[test]
+    fn test_missing_opening_paren() {
+        assert_eq!(parse_link_token("[text]url)"), None);
+    }
+}
+
 fn walk_inline_nodes(
     node: Node,
     content: &str,

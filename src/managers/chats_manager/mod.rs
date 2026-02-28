@@ -245,3 +245,109 @@ impl ChatsManager {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use notitia::prelude::*;
+    use notitia::PrimaryKey;
+
+    async fn test_db() -> Notitia<AstrumDb, SqliteAdapter> {
+        AstrumDb::connect::<SqliteAdapter>("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory test DB")
+    }
+
+    #[test]
+    fn test_insert_chat_creates_row() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let chat_id = UniqueId::new();
+
+            ChatsManager::insert_chat(&db, &chat_id).await.unwrap();
+
+            let result: Result<(PrimaryKey<UniqueId>, Option<String>), _> = db
+                .query(
+                    AstrumDb::CHATS
+                        .select((ChatRecord::ID, ChatRecord::TITLE))
+                        .filter(ChatRecord::ID.eq(chat_id.clone()))
+                        .fetch_one(),
+                )
+                .execute()
+                .await;
+            let (pk, title) = result.unwrap();
+            assert_eq!(*pk, chat_id);
+            assert_eq!(title, Some("Untitled Chat".to_string()));
+        });
+    }
+
+    #[test]
+    fn test_insert_message_creates_row() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let chat_id = UniqueId::new();
+            let msg_id = UniqueId::new();
+
+            ChatsManager::insert_chat(&db, &chat_id).await.unwrap();
+            ChatsManager::insert_message(&db, &msg_id, &chat_id, "Hello!", MessageRole::User)
+                .await
+                .unwrap();
+
+            let result: Result<(PrimaryKey<UniqueId>, String), _> = db
+                .query(
+                    AstrumDb::MESSAGES
+                        .select((MessageRecord::ID, MessageRecord::CONTENT))
+                        .filter(MessageRecord::ID.eq(msg_id.clone()))
+                        .fetch_one(),
+                )
+                .execute()
+                .await;
+            let (pk, content) = result.unwrap();
+            assert_eq!(*pk, msg_id);
+            assert_eq!(content, "Hello!");
+        });
+    }
+
+    #[test]
+    fn test_insert_multiple_messages_different_roles() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let chat_id = UniqueId::new();
+            ChatsManager::insert_chat(&db, &chat_id).await.unwrap();
+
+            let user_msg = UniqueId::new();
+            let assistant_msg = UniqueId::new();
+
+            ChatsManager::insert_message(&db, &user_msg, &chat_id, "question", MessageRole::User)
+                .await
+                .unwrap();
+            ChatsManager::insert_message(&db, &assistant_msg, &chat_id, "answer", MessageRole::Assistant)
+                .await
+                .unwrap();
+
+            let result: Result<Vec<(PrimaryKey<UniqueId>, String, String)>, _> = db
+                .query(
+                    AstrumDb::MESSAGES
+                        .select((MessageRecord::ID, MessageRecord::ROLE, MessageRecord::CONTENT))
+                        .filter(MessageRecord::CHAT_ID.eq(chat_id))
+                        .fetch_all::<Vec<_>>(),
+                )
+                .execute()
+                .await;
+            let messages = result.unwrap();
+            assert_eq!(messages.len(), 2);
+        });
+    }
+
+    #[test]
+    fn test_insert_chat_duplicate_id_fails() {
+        smol::block_on(async {
+            let db = test_db().await;
+            let chat_id = UniqueId::new();
+
+            ChatsManager::insert_chat(&db, &chat_id).await.unwrap();
+            let result = ChatsManager::insert_chat(&db, &chat_id).await;
+            assert!(result.is_err());
+        });
+    }
+}

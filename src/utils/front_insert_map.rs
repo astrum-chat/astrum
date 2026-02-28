@@ -98,3 +98,144 @@ impl<K: Eq + Hash + Clone, V> FrontInsertMap<K, V> {
         self.order.iter().filter_map(|k| self.map.get(k))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_is_empty() {
+        let map: FrontInsertMap<String, i32> = FrontInsertMap::new();
+        assert!(map.is_empty());
+        assert_eq!(map.len(), 0);
+    }
+
+    #[test]
+    fn test_with_capacity_is_empty() {
+        let map: FrontInsertMap<String, i32> = FrontInsertMap::with_capacity(10);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_default_is_empty() {
+        let map: FrontInsertMap<String, i32> = FrontInsertMap::default();
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_insert_back_new_key() {
+        let mut map = FrontInsertMap::new();
+        let old = map.insert("a", 1);
+        assert!(old.is_none());
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.get(&"a"), Some(&1));
+    }
+
+    #[test]
+    fn test_insert_back_duplicate_key_returns_old_value() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        let old = map.insert("a", 2);
+        assert_eq!(old, Some(1));
+        assert_eq!(map.get(&"a"), Some(&2));
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_back_preserves_order() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        map.insert("b", 2);
+        map.insert("c", 3);
+        let keys: Vec<_> = map.keys().collect();
+        assert_eq!(keys, vec![&"a", &"b", &"c"]);
+    }
+
+    #[test]
+    fn test_insert_front_new_key() {
+        let mut map = FrontInsertMap::new();
+        let old = map.insert_front("a", 1);
+        assert!(old.is_none());
+        assert_eq!(map.get(&"a"), Some(&1));
+    }
+
+    #[test]
+    fn test_insert_front_pushes_to_front() {
+        let mut map = FrontInsertMap::new();
+        map.insert_front("a", 1);
+        map.insert_front("b", 2);
+        map.insert_front("c", 3);
+        let keys: Vec<_> = map.keys().collect();
+        assert_eq!(keys, vec![&"c", &"b", &"a"]);
+    }
+
+    #[test]
+    fn test_insert_front_duplicate_updates_value_preserves_position() {
+        let mut map = FrontInsertMap::new();
+        map.insert_front("a", 1);
+        map.insert_front("b", 2);
+        let old = map.insert_front("a", 10);
+        assert_eq!(old, Some(1));
+        assert_eq!(map.get(&"a"), Some(&10));
+        let keys: Vec<_> = map.keys().collect();
+        assert_eq!(keys, vec![&"b", &"a"]);
+    }
+
+    #[test]
+    fn test_mixed_insert_front_and_back_ordering() {
+        let mut map = FrontInsertMap::new();
+        map.insert("x", 1);
+        map.insert_front("y", 2);
+        map.insert("z", 3);
+        let keys: Vec<_> = map.keys().collect();
+        assert_eq!(keys, vec![&"y", &"x", &"z"]);
+    }
+
+    #[test]
+    fn test_remove_existing_key() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        map.insert("b", 2);
+        let removed = map.remove(&"a");
+        assert_eq!(removed, Some(1));
+        assert_eq!(map.len(), 1);
+        assert!(!map.contains_key(&"a"));
+    }
+
+    #[test]
+    fn test_remove_nonexistent_key() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        let removed = map.remove(&"z");
+        assert!(removed.is_none());
+        assert_eq!(map.len(), 1);
+    }
+
+    #[test]
+    fn test_get_mut_modifies_value() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        if let Some(v) = map.get_mut(&"a") {
+            *v = 42;
+        }
+        assert_eq!(map.get(&"a"), Some(&42));
+    }
+
+    #[test]
+    fn test_iter_yields_pairs_in_order() {
+        let mut map = FrontInsertMap::new();
+        map.insert("a", 1);
+        map.insert("b", 2);
+        let pairs: Vec<_> = map.iter().collect();
+        assert_eq!(pairs, vec![(&"a", &1), (&"b", &2)]);
+    }
+
+    #[test]
+    fn test_values_in_order() {
+        let mut map = FrontInsertMap::new();
+        map.insert_front("a", 10);
+        map.insert_front("b", 20);
+        let vals: Vec<_> = map.values().collect();
+        assert_eq!(vals, vec![&20, &10]);
+    }
+}
