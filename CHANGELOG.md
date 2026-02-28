@@ -2,6 +2,9 @@
 ## Features
 - Threads can now be deleted.
 
+## Fixes
+- Fixed UI freezing briefly when switching threads, sending messages, or managing providers.
+
 # v0.1.10
 ## Features
 - Models are now displayed with their provider's icon.
