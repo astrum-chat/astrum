@@ -1,7 +1,7 @@
 use anyml::models::{Model, ModelParams, ModelQuant};
 use gpui::{
-    App, ElementId, InteractiveElement, IntoElement, RenderOnce, SharedString,
-    Window, deferred, div, prelude::*, px, radians, relative,
+    App, ElementId, InteractiveElement, IntoElement, RenderOnce, SharedString, Window, deferred,
+    div, prelude::*, px, radians, relative,
 };
 
 use gpui_tesserae::{
@@ -45,13 +45,18 @@ impl ChatArea {
 
 impl RenderOnce for ChatArea {
     fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl IntoElement {
-        let (current_chat_id, db_initialized, db) = self.managers.chats.read_with(cx, |chats, cx| {
-            (
-                chats.get_current_chat_id().read(cx).clone(),
-                chats.db_initialized(),
-                if chats.db_initialized() { Some(chats.db().clone()) } else { None },
-            )
-        });
+        let (current_chat_id, db_initialized, db) =
+            self.managers.chats.read_with(cx, |chats, cx| {
+                (
+                    chats.get_current_chat_id().read(cx).clone(),
+                    chats.db_initialized(),
+                    if chats.db_initialized() {
+                        Some(chats.db().clone())
+                    } else {
+                        None
+                    },
+                )
+            });
 
         let messages = current_chat_id
             .as_ref()
@@ -59,19 +64,23 @@ impl RenderOnce for ChatArea {
             .and_then(|chat_id| {
                 let db = db.as_ref()?;
                 let chat_id_for_query = chat_id.clone();
-                Some(window.use_keyed_db_query(format!("messages_{}", chat_id), cx, |_window, _cx| {
-                    db.query(
-                        AstrumDb::MESSAGES
-                            .select((
-                                MessageRecord::ID,
-                                MessageRecord::ROLE,
-                                MessageRecord::CONTENT,
-                            ))
-                            .filter(MessageRecord::CHAT_ID.eq(chat_id_for_query.clone()))
-                            .order_by(MessageRecord::CREATED_AT, OrderDirection::Asc)
-                            .fetch_all::<BTreeMap<_, _>>(),
-                    )
-                }))
+                Some(window.use_keyed_db_query(
+                    format!("messages_{}", chat_id),
+                    cx,
+                    |_window, _cx| {
+                        db.query(
+                            AstrumDb::MESSAGES
+                                .select((
+                                    MessageRecord::ID,
+                                    MessageRecord::ROLE,
+                                    MessageRecord::CONTENT,
+                                ))
+                                .filter(MessageRecord::CHAT_ID.eq(chat_id_for_query.clone()))
+                                .order_by(MessageRecord::CREATED_AT, OrderDirection::Asc)
+                                .fetch_all::<BTreeMap<_, _>>(),
+                        )
+                    },
+                ))
             });
 
         div()
@@ -128,11 +137,12 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
         .evaluate(window, cx)
         .value();
 
-    let current_provider_icon: Option<SharedString> = elem.managers.models.read_with(cx, |models, cx| {
-        models
-            .get_current_provider(cx)
-            .map(|p| p.icon.read(cx).clone())
-    });
+    let current_provider_icon: Option<SharedString> =
+        elem.managers.models.read_with(cx, |models, cx| {
+            models
+                .get_current_provider(cx)
+                .map(|p| p.icon.read(cx).clone())
+        });
 
     let chat_box_left_items = div()
         .max_w_full()
@@ -155,32 +165,27 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                                 if models.providers.read(cx).is_empty() {
                                     return "No provider exists".to_string();
                                 }
-                                let model_id = models.get_current_model(cx).cloned();
-                                match model_id {
-                                    Some(id) => {
-                                        let parameters = models
-                                            .current_model
+                                match models.current_model.read(cx).as_ref() {
+                                    Some(p) => {
+                                        let parameters = p
                                             .parameters
-                                            .read(cx)
-                                            .as_ref()
-                                            .filter(|p| !p.is_empty())
-                                            .map(|p| ModelParams::new(p));
-                                        let quantization = models
-                                            .current_model
+                                            .as_deref()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| ModelParams::new(s));
+                                        let quantization = p
                                             .quantization
-                                            .read(cx)
-                                            .as_ref()
-                                            .filter(|q| !q.is_empty())
-                                            .map(|q| ModelQuant::new(q));
+                                            .as_deref()
+                                            .filter(|s| !s.is_empty())
+                                            .map(|s| ModelQuant::new(s));
                                         Model {
-                                            id,
+                                            id: p.model.clone(),
                                             parameters,
                                             quantization,
                                             thinking: None,
                                         }
                                         .to_string()
                                     }
-                                    _ => "No model selected".to_string(),
+                                    None => "No model selected".to_string(),
                                 }
                             })
                         }),
@@ -218,8 +223,25 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                 ),
         );
 
-    let is_streaming = elem.managers.chats.read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
+    let is_streaming = elem
+        .managers
+        .chats
+        .read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
+    let thinking_enabled = elem
+        .managers
+        .chats
+        .read_with(cx, |chats, cx| *chats.thinking_enabled.read(cx));
     let has_input_text = !chat_box_input_state.read(cx).value().is_empty();
+
+    let model_supports_thinking = {
+        let pair = elem.managers.models.read(cx).current_model.read(cx).clone();
+        match pair {
+            Some(p) => models_cache
+                .read(cx)
+                .model_supports_thinking(&p.provider_id, &p.model),
+            None => false,
+        }
+    };
 
     let submit_disabled =
         picker.has_no_providers || picker.has_no_model || (!is_streaming && !has_input_text);
@@ -248,14 +270,31 @@ fn chat_box(elem: &ChatArea, window: &mut Window, cx: &mut App) -> Input {
                         handle_submit(&managers, &chat_box_input_state, cx);
                     })
                 }),
-        );
+        )
+        .child({
+            let managers = elem.managers.clone();
+            Toggle::new(elem.id.with_suffix("thinking_btn"))
+                .icon(AstrumIconKind::Think)
+                .icon_size(px(18.))
+                .p(px(9.))
+                .variant(ToggleVariant::Constructive)
+                .checked(thinking_enabled)
+                .disabled(!model_supports_thinking)
+                .on_click(move |_event, _window, cx| {
+                    let thinking = managers.chats.read(cx).thinking_enabled.clone();
+                    thinking.update(cx, |enabled, cx| {
+                        *enabled = !*enabled;
+                        cx.notify();
+                    });
+                })
+        });
 
     Input::new(
         elem.id.with_suffix("chat_box"),
         chat_box_input_state.clone(),
     )
     .multiline()
-    .multiline_clamp(12)
+    .multiline_max_lines(12)
     .multiline_wrapped()
     .submit_disabled(submit_disabled)
     .on_submit({

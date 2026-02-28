@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-use anyml::MessageRole;
+use anyml::{ChatChunk, MessageRole};
 use futures::future::AbortHandle;
 use gpui::{App, AppContext, Entity};
 use notitia::Notitia;
@@ -12,6 +12,16 @@ use schema::{AstrumDb, ChatRecord, DbDateTime, MessageRecord, UniqueId};
 
 use crate::utils::errors::push_error_async;
 
+/// Delimiter used to separate thinking blocks from content in the DB.
+pub const THINK_DELIMITER: &str = "<|think|>";
+
+/// Tracks the kind of the last streamed chunk for a message.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChatChunkKind {
+    Content,
+    Thinking,
+}
+
 /// A queued mutation to be executed sequentially per message.
 enum MessageMutation {
     AppendContent { chunk: String },
@@ -22,9 +32,12 @@ pub struct ChatsManager {
     db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     current_chat_id: Entity<Option<UniqueId>>,
     pub is_streaming: Entity<bool>,
+    pub thinking_enabled: Entity<bool>,
     pub streaming_abort_handle: Entity<Option<AbortHandle>>,
     mutation_queues: HashMap<UniqueId, Sender<MessageMutation>>,
     title_abort_handles: HashMap<UniqueId, AbortHandle>,
+    /// Tracks the kind of the last streamed chunk for each message.
+    last_chunk_kind: HashMap<UniqueId, ChatChunkKind>,
 }
 
 impl ChatsManager {
@@ -33,9 +46,11 @@ impl ChatsManager {
             db: None,
             current_chat_id: cx.new(|_cx| None),
             is_streaming: cx.new(|_cx| false),
+            thinking_enabled: cx.new(|_cx| false),
             streaming_abort_handle: cx.new(|_cx| None),
             mutation_queues: HashMap::new(),
             title_abort_handles: HashMap::new(),
+            last_chunk_kind: HashMap::new(),
         }
     }
 
@@ -95,6 +110,7 @@ impl ChatsManager {
 
     pub fn drop_mutation_queue(&mut self, id: &UniqueId) {
         self.mutation_queues.remove(id);
+        self.last_chunk_kind.remove(id);
     }
 
     pub fn db(&self) -> &Notitia<AstrumDb, SqliteAdapter> {
@@ -213,6 +229,40 @@ impl ChatsManager {
         let queue = self.queue_for(message_id, cx);
         let _ = queue.send_blocking(MessageMutation::AppendContent {
             chunk: chunk.into(),
+        });
+    }
+
+    /// Pushes a streaming chunk, inserting `<|think|>` delimiters on type transitions.
+    pub fn push_chunk(
+        &mut self,
+        cx: &mut App,
+        message_id: &UniqueId,
+        chunk: &ChatChunk,
+    ) {
+        let (kind, text) = match chunk {
+            ChatChunk::Content(t) => (ChatChunkKind::Content, t.as_str()),
+            ChatChunk::Thinking(t) => (ChatChunkKind::Thinking, t.as_str()),
+        };
+
+        let last = self.last_chunk_kind.get(message_id).copied();
+        let needs_delimiter = last != Some(kind) && (last.is_some() || kind == ChatChunkKind::Thinking);
+
+        self.last_chunk_kind.insert(message_id.clone(), kind);
+
+        if needs_delimiter {
+            let mut combined = String::with_capacity(THINK_DELIMITER.len() + text.len());
+            combined.push_str(THINK_DELIMITER);
+            combined.push_str(text);
+            self.push_message_content(cx, message_id, combined);
+        } else {
+            self.push_message_content(cx, message_id, text);
+        }
+    }
+
+    pub fn toggle_thinking(&self, cx: &mut App) {
+        self.thinking_enabled.update(cx, |enabled, cx| {
+            *enabled = !*enabled;
+            cx.notify();
         });
     }
 

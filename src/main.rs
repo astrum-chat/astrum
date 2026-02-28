@@ -8,8 +8,9 @@ use gpui_tesserae::{
     views::Root,
 };
 use notitia::Database;
+use notitia::prelude::*;
 use notitia_sqlite::SqliteAdapter;
-use schema::AstrumDb;
+use schema::{AstrumDb, SystemPromptRecord};
 
 use std::sync::Arc;
 
@@ -98,7 +99,27 @@ fn main() {
 
                                         // Load providers + model selections asynchronously
                                         let models_entity = managers.models.clone();
-                                        ModelsManager::load_from_db(models_entity, db, cx).await;
+                                        ModelsManager::load_from_db(models_entity, db.clone(), cx)
+                                            .await;
+
+                                        // Load system prompt from DB
+                                        if let Ok(content) = db
+                                            .query(
+                                                AstrumDb::SYSTEM_PROMPTS
+                                                    .select(SystemPromptRecord::CONTENT)
+                                                    .fetch_first(),
+                                            )
+                                            .execute()
+                                            .await
+                                        {
+                                            let system_prompt = managers.system_prompt.clone();
+
+                                            let _ = cx.update(move |cx| {
+                                                system_prompt.update(cx, |s, _cx| {
+                                                    *s = SharedString::from(content);
+                                                });
+                                            });
+                                        }
 
                                         // Prefetch models + check for updates (providers now loaded)
                                         let _ = cx.update(move |cx| {

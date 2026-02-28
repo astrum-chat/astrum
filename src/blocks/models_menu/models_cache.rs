@@ -17,11 +17,12 @@ pub struct CachedModel {
     pub parameters: Option<String>,
     pub quantization: Option<String>,
     pub icon_path: SharedString,
+    pub has_thinking: bool,
 }
 
 struct ProviderModels {
-    /// (model_id, display_name, parameters, quantization)
-    models: Vec<(String, String, Option<String>, Option<String>)>,
+    /// (model_id, display_name, parameters, quantization, has_thinking)
+    models: Vec<(String, String, Option<String>, Option<String>, bool)>,
     provider_name: String,
     icon_path: SharedString,
     fetched_at: Instant,
@@ -46,6 +47,12 @@ impl ModelsCache {
         &self.all_models
     }
 
+    pub fn model_supports_thinking(&self, provider_id: &UniqueId, model_id: &str) -> bool {
+        self.all_models.iter().any(|m| {
+            &m.provider_id == provider_id && m.model_id == model_id && m.has_thinking
+        })
+    }
+
     pub fn is_provider_stale(&self, provider_id: &UniqueId) -> bool {
         match self.per_provider.get(provider_id) {
             Some(cached) => {
@@ -58,7 +65,7 @@ impl ModelsCache {
     pub fn get_provider_models(
         &self,
         provider_id: &UniqueId,
-    ) -> Option<(&str, &[(String, String, Option<String>, Option<String>)])> {
+    ) -> Option<(&str, &[(String, String, Option<String>, Option<String>, bool)])> {
         let cached = self.per_provider.get(provider_id)?;
         if cached.fetched_at.elapsed() < Duration::from_secs(MODEL_FETCH_COOLDOWN_SECS) {
             Some((&cached.provider_name, &cached.models))
@@ -72,7 +79,7 @@ impl ModelsCache {
         provider_id: UniqueId,
         provider_name: String,
         icon_path: SharedString,
-        models: Vec<(String, String, Option<String>, Option<String>)>,
+        models: Vec<(String, String, Option<String>, Option<String>, bool)>,
     ) {
         info!(
             provider_name = %provider_name,
@@ -119,7 +126,7 @@ impl ModelsCache {
     fn rebuild_all_models(&mut self) {
         self.all_models.clear();
         for (provider_id, provider_models) in &self.per_provider {
-            for (model_id, display_name, parameters, quantization) in &provider_models.models {
+            for (model_id, display_name, parameters, quantization, has_thinking) in &provider_models.models {
                 self.all_models.push(CachedModel {
                     provider_id: provider_id.clone(),
                     provider_name: provider_models.provider_name.clone(),
@@ -128,6 +135,7 @@ impl ModelsCache {
                     parameters: parameters.clone(),
                     quantization: quantization.clone(),
                     icon_path: provider_models.icon_path.clone(),
+                    has_thinking: *has_thinking,
                 });
             }
         }

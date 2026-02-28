@@ -1,4 +1,4 @@
-use anyml::{ChatChunk, ChatOptions, MessageRole, models::Message};
+use anyml::{ChatChunk, ChatOptions, MessageRole, Thinking, models::Message};
 use futures::future::{AbortHandle, Abortable};
 use gpui::{App, AsyncApp, Entity, SharedString};
 use gpui_tesserae::primitives::input::InputState;
@@ -7,7 +7,7 @@ use serde_json::value::RawValue;
 
 use schema::{AstrumDb, MessageRecord, UniqueId};
 
-use crate::managers::{Managers, ChatsManager};
+use crate::managers::{ChatsManager, Managers};
 use crate::utils::errors::push_error_async;
 
 pub(super) fn handle_submit(
@@ -15,10 +15,14 @@ pub(super) fn handle_submit(
     chat_box_input_state: &Entity<InputState>,
     cx: &mut App,
 ) {
-    let is_streaming = managers.chats.read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
+    let is_streaming = managers
+        .chats
+        .read_with(cx, |chats, cx| *chats.is_streaming.read(cx));
 
     if is_streaming {
-        managers.chats.update(cx, |chats, cx| chats.cancel_streaming(cx));
+        managers
+            .chats
+            .update(cx, |chats, cx| chats.cancel_streaming(cx));
         return;
     }
 
@@ -41,7 +45,10 @@ fn spawn_title_generation(
     cx: &mut App,
 ) {
     let (chat_titles_provider, chat_titles_model) = managers.models.read_with(cx, |models, cx| {
-        (models.get_chat_titles_provider(cx).cloned(), models.get_chat_titles_model(cx).cloned())
+        (
+            models.get_chat_titles_provider(cx),
+            models.get_chat_titles_model(cx),
+        )
     });
 
     let (Some(provider), Some(model)) = (chat_titles_provider, chat_titles_model) else {
@@ -62,7 +69,7 @@ fn spawn_title_generation(
     cx.spawn(async move |cx: &mut AsyncApp| {
         let title_future = async {
             let prompt = format!(
-                "Summarize this into a short 4-6 word thread title. Do not use any punctuation. Keep it natural and concise.\n\nUser: \"{}\"\nTitle:",
+                "Summarize this into a short 4-6 word thread title. DO NOT INCLUDE ANY PUNCTUATION - ESPECIALLY SINGLE OR DOUBLE QUOTES. Keep it natural and concise.\n\nMessage: \"{}\"\nTitle:",
                 user_message
             );
 
@@ -104,42 +111,64 @@ fn spawn_title_generation(
     .detach();
 }
 
-fn send_message(
-    managers: Managers,
-    contents: SharedString,
-    cx: &mut App,
-) -> Option<()> {
+fn send_message(managers: Managers, contents: SharedString, cx: &mut App) -> Option<()> {
     let (current_provider, current_model) = managers.models.read_with(cx, |models, cx| {
-        (models.get_current_provider(cx).cloned(), models.get_current_model(cx).cloned())
+        (
+            models.get_current_provider(cx),
+            models.get_current_model(cx),
+        )
     });
     let current_provider = current_provider?;
     let current_model = current_model?;
 
-    let (chat_id, is_new_chat, db, assistant_msg_id, abort_registration) = managers.chats.update(cx, |chats, cx| {
-        let current_chat_id = chats.get_current_chat_id().read(cx).clone();
+    let thinking_enabled = {
+        let toggle_on = managers
+            .chats
+            .read_with(cx, |chats, cx| *chats.thinking_enabled.read(cx));
+        let model_supports = managers.models.read_with(cx, |models, cx| {
+            let cache = models.models_cache.read(cx);
+            models
+                .current_model
+                .read(cx)
+                .as_ref()
+                .is_some_and(|p| cache.model_supports_thinking(&p.provider_id, &p.model))
+        });
+        toggle_on && model_supports
+    };
 
-        let (chat_id, is_new_chat) = match current_chat_id {
-            Some(id) => (id, false),
-            None => (UniqueId::new(), true),
-        };
+    let (chat_id, is_new_chat, db, assistant_msg_id, abort_registration) =
+        managers.chats.update(cx, |chats, cx| {
+            let current_chat_id = chats.get_current_chat_id().read(cx).clone();
 
-        chats.set_current_chat(cx, chat_id.clone());
+            let (chat_id, is_new_chat) = match current_chat_id {
+                Some(id) => (id, false),
+                None => (UniqueId::new(), true),
+            };
 
-        let assistant_msg_id = UniqueId::new();
+            chats.set_current_chat(cx, chat_id.clone());
 
-        chats.set_streaming(cx, true);
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        chats.set_abort_handle(cx, Some(abort_handle));
+            let assistant_msg_id = UniqueId::new();
 
-        let db = chats.db().clone();
+            chats.set_streaming(cx, true);
+            let (abort_handle, abort_registration) = AbortHandle::new_pair();
+            chats.set_abort_handle(cx, Some(abort_handle));
 
-        (chat_id, is_new_chat, db, assistant_msg_id, abort_registration)
-    });
+            let db = chats.db().clone();
+
+            (
+                chat_id,
+                is_new_chat,
+                db,
+                assistant_msg_id,
+                abort_registration,
+            )
+        });
 
     if is_new_chat {
         spawn_title_generation(&managers, &chat_id, &contents, cx);
     }
 
+    let system_prompt = managers.system_prompt.read(cx).to_string();
     let chat_id_for_stream = chat_id.clone();
     let chats_for_cleanup = managers.chats.clone();
     let errors = managers.errors.clone();
@@ -155,14 +184,26 @@ fn send_message(
                 }
             }
             if let Err(e) = ChatsManager::insert_message(
-                &db, &UniqueId::new(), &chat_id_for_stream, &user_content, MessageRole::User,
-            ).await {
+                &db,
+                &UniqueId::new(),
+                &chat_id_for_stream,
+                &user_content,
+                MessageRole::User,
+            )
+            .await
+            {
                 push_error_async(&errors, cx, format!("Failed to save message: {e}"));
                 return;
             }
             if let Err(e) = ChatsManager::insert_message(
-                &db, &assistant_msg_id, &chat_id_for_stream, "", MessageRole::Assistant,
-            ).await {
+                &db,
+                &assistant_msg_id,
+                &chat_id_for_stream,
+                "",
+                MessageRole::Assistant,
+            )
+            .await
+            {
                 push_error_async(&errors, cx, format!("Failed to save message: {e}"));
                 return;
             }
@@ -186,7 +227,7 @@ fn send_message(
                 }
             };
 
-            let api_messages: Vec<Message> = messages_data
+            let mut api_messages: Vec<Message> = messages_data
                 .values()
                 .filter(|(_, content): &&(String, String)| !content.is_empty())
                 .map(|(role, content)| Message {
@@ -195,33 +236,33 @@ fn send_message(
                 })
                 .collect();
 
+            if !system_prompt.is_empty() {
+                api_messages.insert(0, Message::system(&system_prompt));
+            }
+
             let messages_json = serde_json::to_string(&api_messages).unwrap();
             let messages_raw = RawValue::from_string(messages_json).unwrap();
 
-            let options = ChatOptions::new(&current_model).messages_serialized(messages_raw);
+            let mut options = ChatOptions::new(&current_model).messages_serialized(messages_raw);
+            if thinking_enabled {
+                options = options.thinking(Thinking::Enabled);
+            }
+
+            println!("[debug] thinking_enabled={thinking_enabled}");
+
             let response = current_provider.inner.chat(&options).await;
 
             match response {
                 Ok(mut response) => {
                     while let Some(Ok(chunk)) = response.next().await {
-                        if let ChatChunk::Content(text) = chunk {
-                            let _ = chats_for_cleanup.update(cx, |chats, cx| {
-                                chats.push_message_content(
-                                    cx,
-                                    &assistant_msg_id,
-                                    &text,
-                                );
-                            });
-                        }
+                        let _ = chats_for_cleanup.update(cx, |chats, cx| {
+                            chats.push_chunk(cx, &assistant_msg_id, &chunk);
+                        });
                     }
                 }
                 Err(err) => {
                     let _ = chats_for_cleanup.update(cx, |chats, cx| {
-                        chats.push_message_content(
-                            cx,
-                            &assistant_msg_id,
-                            &err.to_string(),
-                        );
+                        chats.push_message_content(cx, &assistant_msg_id, &err.to_string());
                     });
                 }
             };

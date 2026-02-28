@@ -13,6 +13,7 @@ pub struct AstrumDb {
     pub messages: Table<MessageRecord>,
     pub providers: Table<ProviderRecord>,
     pub model_selections: Table<ModelSelectionRecord>,
+    pub system_prompts: Table<SystemPromptRecord>,
 }
 
 #[record]
@@ -55,6 +56,13 @@ pub struct ModelSelectionRecord {
     pub model: Option<String>,
     pub parameters: Option<String>,
     pub quantization: Option<String>,
+}
+
+#[record]
+pub struct SystemPromptRecord {
+    #[db(primary_key)]
+    pub id: UniqueId,
+    pub content: String,
 }
 
 pub mod schemas {

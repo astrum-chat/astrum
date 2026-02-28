@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use gpui::{App, AppContext, Entity};
+use gpui::{App, AppContext, Entity, SharedString};
 use notitia::Notitia;
 use notitia_sqlite::SqliteAdapter;
 
@@ -32,6 +32,7 @@ pub struct Managers {
     pub persistence: PersistenceManager,
     pub available_update: Entity<Option<ReleaseInfo>>,
     pub errors: Entity<VecDeque<String>>,
+    pub system_prompt: Entity<SharedString>,
 }
 
 impl Managers {
@@ -44,6 +45,7 @@ impl Managers {
             persistence: PersistenceManager::new(),
             available_update: update.available_update,
             errors: cx.new(|_cx| VecDeque::new()),
+            system_prompt: cx.new(|_cx| SharedString::default()),
         }
     }
 

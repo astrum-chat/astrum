@@ -52,27 +52,23 @@ impl ModelPicker {
                 ModelSelectionSource::Current => &models.current_model,
                 ModelSelectionSource::ChatTitles => &models.chat_titles_model,
             };
-            let (provider_id, provider_name, model, parameters, quantization) =
-                pair.read_selection(cx);
-            match (provider_id, provider_name, model) {
-                (Some(pid), Some(pn), Some(m)) => {
-                    let icon_path: SharedString = models
-                        .providers
-                        .read(cx)
-                        .get(&pid)
-                        .map(|p| p.icon.read(cx).clone())
-                        .unwrap_or_default();
-                    Some(InitialModelSelection {
-                        provider_id: pid,
-                        provider_name: pn,
-                        model_id: m,
-                        parameters,
-                        quantization,
-                        icon_path,
-                    })
+            let pair = pair.read(cx);
+            pair.as_ref().map(|p| {
+                let icon_path: SharedString = models
+                    .providers
+                    .read(cx)
+                    .get(&p.provider_id)
+                    .map(|prov| prov.icon.read(cx).clone())
+                    .unwrap_or_default();
+                InitialModelSelection {
+                    provider_id: p.provider_id.clone(),
+                    provider_name: p.provider_name.clone(),
+                    model_id: p.model.clone(),
+                    parameters: p.parameters.clone(),
+                    quantization: p.quantization.clone(),
+                    icon_path,
                 }
-                _ => None,
-            }
+            })
         });
 
         let models_select_state = create_models_select_state(
@@ -88,12 +84,15 @@ impl ModelPicker {
         let providers_entity = managers.models.read(cx).providers.clone();
         observe_providers_for_refresh(&providers_entity, state.clone(), managers.clone(), cx);
 
-        let (current_provider_id, _, current_model, _, _) = managers.models.read_with(cx, |models, cx| {
+        let (current_provider_id, current_model) = managers.models.read_with(cx, |models, cx| {
             let pair = match source {
                 ModelSelectionSource::Current => &models.current_model,
                 ModelSelectionSource::ChatTitles => &models.chat_titles_model,
             };
-            pair.read_selection(cx)
+            match pair.read(cx).as_ref() {
+                Some(p) => (Some(p.provider_id.clone()), Some(p.model.clone())),
+                None => (None, None),
+            }
         });
 
         populate_state_from_cache(
@@ -113,12 +112,15 @@ impl ModelPicker {
                     cx.notify();
                 });
 
-                let (current_provider_id, _, current_model, _, _) = managers.models.read_with(cx, |models, cx| {
+                let (current_provider_id, current_model) = managers.models.read_with(cx, |models, cx| {
                     let pair = match source {
                         ModelSelectionSource::Current => &models.current_model,
                         ModelSelectionSource::ChatTitles => &models.chat_titles_model,
                     };
-                    pair.read_selection(cx)
+                    match pair.read(cx).as_ref() {
+                        Some(p) => (Some(p.provider_id.clone()), Some(p.model.clone())),
+                        None => (None, None),
+                    }
                 });
 
                 populate_state_from_cache(

@@ -26,101 +26,30 @@ use crate::{
     utils::FrontInsertMap,
 };
 
+#[derive(Clone)]
 pub struct ProviderModelPair {
-    pub provider_id: Entity<Option<UniqueId>>,
-    pub provider_name: Entity<Option<String>>,
-    pub model: Entity<Option<String>>,
-    pub parameters: Entity<Option<String>>,
-    pub quantization: Entity<Option<String>>,
-}
-
-impl ProviderModelPair {
-    pub fn read_selection(
-        &self,
-        cx: &App,
-    ) -> (
-        Option<UniqueId>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ) {
-        (
-            self.provider_id.read(cx).clone(),
-            self.provider_name.read(cx).clone(),
-            self.model.read(cx).clone(),
-            self.parameters.read(cx).clone(),
-            self.quantization.read(cx).clone(),
-        )
-    }
-
-    pub fn set(
-        &self,
-        cx: &mut App,
-        provider_id: &UniqueId,
-        provider_name: &str,
-        model: &str,
-        parameters: &Option<String>,
-        quantization: &Option<String>,
-    ) {
-        cx.update_entity(&self.provider_id, |pid, cx| {
-            *pid = Some(provider_id.clone());
-            cx.notify();
-        });
-        cx.update_entity(&self.provider_name, |pname, cx| {
-            *pname = Some(provider_name.to_string());
-            cx.notify();
-        });
-        cx.update_entity(&self.model, |m, cx| {
-            *m = Some(model.to_string());
-            cx.notify();
-        });
-        cx.update_entity(&self.parameters, |p, cx| {
-            *p = parameters.clone();
-            cx.notify();
-        });
-        cx.update_entity(&self.quantization, |q, cx| {
-            *q = quantization.clone();
-            cx.notify();
-        });
-    }
-
-    pub fn clear(&self, cx: &mut App) {
-        cx.update_entity(&self.provider_id, |pid, cx| { *pid = None; cx.notify(); });
-        cx.update_entity(&self.provider_name, |pname, cx| { *pname = None; cx.notify(); });
-        cx.update_entity(&self.model, |m, cx| { *m = None; cx.notify(); });
-        cx.update_entity(&self.parameters, |p, cx| { *p = None; cx.notify(); });
-        cx.update_entity(&self.quantization, |q, cx| { *q = None; cx.notify(); });
-    }
+    pub provider_id: UniqueId,
+    pub provider_name: String,
+    pub model: String,
+    pub parameters: Option<String>,
+    pub quantization: Option<String>,
 }
 
 pub struct ModelsManager {
     db: Option<Notitia<AstrumDb, SqliteAdapter>>,
     pub providers: Entity<FrontInsertMap<UniqueId, Arc<Provider>>>,
-    pub current_model: ProviderModelPair,
-    pub chat_titles_model: ProviderModelPair,
+    pub current_model: Entity<Option<ProviderModelPair>>,
+    pub chat_titles_model: Entity<Option<ProviderModelPair>>,
     pub models_cache: Entity<ModelsCache>,
 }
 
-impl<'a> ModelsManager {
+impl ModelsManager {
     pub fn new(cx: &mut App) -> Self {
         Self {
             db: None,
             providers: cx.new(move |_cx| FrontInsertMap::new()),
-            current_model: ProviderModelPair {
-                provider_id: cx.new(|_cx| None),
-                provider_name: cx.new(|_cx| None),
-                model: cx.new(|_cx| None),
-                parameters: cx.new(|_cx| None),
-                quantization: cx.new(|_cx| None),
-            },
-            chat_titles_model: ProviderModelPair {
-                provider_id: cx.new(|_cx| None),
-                provider_name: cx.new(|_cx| None),
-                model: cx.new(|_cx| None),
-                parameters: cx.new(|_cx| None),
-                quantization: cx.new(|_cx| None),
-            },
+            current_model: cx.new(|_cx| None),
+            chat_titles_model: cx.new(|_cx| None),
             models_cache: cx.new(|_cx| ModelsCache::new()),
         }
     }
@@ -133,12 +62,9 @@ impl<'a> ModelsManager {
         self.db.as_ref().expect("ModelsManager not initialized")
     }
 
-    pub fn get_current_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
-        self.current_model
-            .provider_id
-            .read(cx)
-            .as_ref()
-            .and_then(|id| self.providers.read(cx).get(id))
+    pub fn get_current_provider(&self, cx: &App) -> Option<Arc<Provider>> {
+        let pid = &self.current_model.read(cx).as_ref()?.provider_id;
+        self.providers.read(cx).get(pid).cloned()
     }
 
     pub fn set_current_selection(
@@ -153,7 +79,16 @@ impl<'a> ModelsManager {
         let provider_name = provider_name.into();
         let model = model.into();
 
-        self.current_model.set(cx, &provider_id, &provider_name, &model, &parameters, &quantization);
+        self.current_model.update(cx, |pair, cx| {
+            *pair = Some(ProviderModelPair {
+                provider_id: provider_id.clone(),
+                provider_name: provider_name.clone(),
+                model: model.clone(),
+                parameters: parameters.clone(),
+                quantization: quantization.clone(),
+            });
+            cx.notify();
+        });
         self.save_model_selection(
             cx,
             "current",
@@ -230,26 +165,23 @@ impl<'a> ModelsManager {
         provider_id
     }
 
-    pub fn get_current_model(&'a self, cx: &'a App) -> Option<&'a String> {
-        self.current_model.model.read(cx).as_ref()
+    pub fn get_current_model(&self, cx: &App) -> Option<String> {
+        self.current_model.read(cx).as_ref().map(|p| p.model.clone())
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
-        self.current_model.clear(cx);
+        self.current_model.update(cx, |pair, cx| { *pair = None; cx.notify(); });
         self.save_model_selection(cx, "current", None, None, None, None, None);
     }
 
     pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
-        self.chat_titles_model.clear(cx);
+        self.chat_titles_model.update(cx, |pair, cx| { *pair = None; cx.notify(); });
         self.save_model_selection(cx, "chat_titles", None, None, None, None, None);
     }
 
-    pub fn get_chat_titles_provider<'b>(&'b self, cx: &'b App) -> Option<&'b Arc<Provider>> {
-        self.chat_titles_model
-            .provider_id
-            .read(cx)
-            .as_ref()
-            .and_then(|id| self.providers.read(cx).get(id))
+    pub fn get_chat_titles_provider(&self, cx: &App) -> Option<Arc<Provider>> {
+        let pid = &self.chat_titles_model.read(cx).as_ref()?.provider_id;
+        self.providers.read(cx).get(pid).cloned()
     }
 
     pub fn set_chat_titles_selection(
@@ -264,7 +196,16 @@ impl<'a> ModelsManager {
         let provider_name = provider_name.into();
         let model = model.into();
 
-        self.chat_titles_model.set(cx, &provider_id, &provider_name, &model, &parameters, &quantization);
+        self.chat_titles_model.update(cx, |pair, cx| {
+            *pair = Some(ProviderModelPair {
+                provider_id: provider_id.clone(),
+                provider_name: provider_name.clone(),
+                model: model.clone(),
+                parameters: parameters.clone(),
+                quantization: quantization.clone(),
+            });
+            cx.notify();
+        });
         self.save_model_selection(
             cx,
             "chat_titles",
@@ -276,8 +217,8 @@ impl<'a> ModelsManager {
         );
     }
 
-    pub fn get_chat_titles_model(&'a self, cx: &'a App) -> Option<&'a String> {
-        self.chat_titles_model.model.read(cx).as_ref()
+    pub fn get_chat_titles_model(&self, cx: &App) -> Option<String> {
+        self.chat_titles_model.read(cx).as_ref().map(|p| p.model.clone())
     }
 
     fn save_model_selection(
@@ -427,45 +368,76 @@ impl<'a> ModelsManager {
                         continue;
                     }
 
-                    let pair = match key.as_str() {
+                    let entity = match key.as_str() {
                         "current" => &models.current_model,
                         "chat_titles" => &models.chat_titles_model,
                         _ => continue,
                     };
 
-                    if let Some(id) = provider_id {
-                        pair.provider_id.update(cx, |pid, cx| {
-                            *pid = Some(id);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(name) = provider_name {
-                        pair.provider_name.update(cx, |pname, cx| {
-                            *pname = Some(name);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(m) = model {
-                        pair.model.update(cx, |model, cx| {
-                            *model = Some(m);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(p) = parameters {
-                        pair.parameters.update(cx, |params, cx| {
-                            *params = Some(p);
-                            cx.notify();
-                        });
-                    }
-                    if let Some(q) = quantization {
-                        pair.quantization.update(cx, |quant, cx| {
-                            *quant = Some(q);
+                    if let (Some(provider_id), Some(provider_name), Some(model)) =
+                        (provider_id, provider_name, model)
+                    {
+                        entity.update(cx, |pair, cx| {
+                            *pair = Some(ProviderModelPair {
+                                provider_id,
+                                provider_name,
+                                model,
+                                parameters,
+                                quantization,
+                            });
                             cx.notify();
                         });
                     }
                 }
             }
+
+            cx.notify();
         });
+
+        // Fetch models for the current provider so models_cache has thinking
+        // capability info before the first render.
+        let current_provider: Option<(UniqueId, Provider)> = models.update(cx, |models, cx| {
+            let pair = models.current_model.read(cx).clone()?;
+            let provider = models.providers.read(cx).get(&pair.provider_id)?.as_ref().clone();
+            Some((pair.provider_id, provider))
+        });
+
+        if let Some((provider_id, provider)) = current_provider {
+            let provider_name: String =
+                cx.read_entity(&provider.name, |name: &SharedString, _| name.to_string());
+            let icon_path: SharedString =
+                cx.read_entity(&provider.icon, |icon: &SharedString, _| icon.clone());
+
+            if let Ok(fetched_models) = provider.inner.list_models().await {
+                let model_pairs: Vec<(String, String, Option<String>, Option<String>, bool)> =
+                    fetched_models
+                        .iter()
+                        .map(|m| {
+                            (
+                                m.id.clone(),
+                                m.to_string(),
+                                m.parameters.as_ref().map(|p| p.as_str().to_string()),
+                                m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                                m.thinking.is_some(),
+                            )
+                        })
+                        .collect();
+
+                let models_cache = cx.read_entity(&models, |models, _| {
+                    models.models_cache.clone()
+                });
+
+                let _ = models_cache.update(cx, |cache, cx| {
+                    cache.refresh_models_for_provider(
+                        provider_id,
+                        provider_name,
+                        icon_path,
+                        model_pairs,
+                    );
+                    cx.notify();
+                });
+            }
+        }
     }
 
     fn create_provider_client(
@@ -677,8 +649,9 @@ impl<'a> ModelsManager {
             remove_secret(cx, &secret_name).detach();
         }
 
-        self.models_cache.update(cx, |cache, _| {
+        self.models_cache.update(cx, |cache, cx| {
             cache.delete_models_for_provider(&provider_id);
+            cx.notify();
         });
 
         self.providers.update(cx, |providers, cx| {

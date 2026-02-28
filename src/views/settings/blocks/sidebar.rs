@@ -14,6 +14,7 @@ use crate::assets::AstrumIconKind;
 const SETTING_PAGES: &[(AstrumIconKind, &str)] = &[
     (AstrumIconKind::Key, "Providers"),
     (AstrumIconKind::Title, "Chat Titles"),
+    (AstrumIconKind::Pen, "System Prompt"),
 ];
 
 #[derive(IntoElement)]

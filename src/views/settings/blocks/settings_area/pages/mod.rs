@@ -12,6 +12,9 @@ pub use providers_page::*;
 mod chat_titles_page;
 pub use chat_titles_page::*;
 
+mod system_prompt_page;
+pub use system_prompt_page::*;
+
 use crate::managers::Managers;
 
 const SETTING_PAGES: phf::Map<&str, fn(ElementId, Managers) -> AnyElement> = phf_map! {
@@ -20,6 +23,9 @@ const SETTING_PAGES: phf::Map<&str, fn(ElementId, Managers) -> AnyElement> = phf
     },
     "Chat Titles" => |id, managers| {
         ChatTitlesPage::new(id, managers).into_any_element()
+    },
+    "System Prompt" => |id, managers| {
+        SystemPromptPage::new(id, managers).into_any_element()
     }
 };
 

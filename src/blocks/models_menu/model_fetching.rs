@@ -86,7 +86,7 @@ fn check_and_update_config_cache(
             .unwrap_or_default()
     });
 
-    models_cache.update(cx, |cache, _| {
+    models_cache.update(cx, |cache, cx| {
         let config_cache =
             cache.get_or_create_config_cache(provider_id, &current_url);
 
@@ -167,7 +167,7 @@ fn spawn_fetch_models(
 
         match provider.inner.list_models().await {
             Ok(models) => {
-                let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                let model_pairs: Vec<(String, String, Option<String>, Option<String>, bool)> = models
                     .iter()
                     .map(|m| {
                         (
@@ -175,17 +175,19 @@ fn spawn_fetch_models(
                             m.to_string(),
                             m.parameters.as_ref().map(|p| p.as_str().to_string()),
                             m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                            m.thinking.is_some(),
                         )
                     })
                     .collect();
 
-                let _ = models_cache.update(cx, |cache, _| {
+                let _ = models_cache.update(cx, |cache, cx| {
                     cache.refresh_models_for_provider(
                         provider_id,
                         provider_name,
                         icon_path,
                         model_pairs,
                     );
+                    cx.notify();
                 });
             }
             Err(err) => {
@@ -228,7 +230,7 @@ pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
 
             match provider.inner.list_models().await {
                 Ok(models) => {
-                    let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                    let model_pairs: Vec<(String, String, Option<String>, Option<String>, bool)> = models
                         .iter()
                         .map(|m| {
                             (
@@ -236,6 +238,7 @@ pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
                                 m.to_string(),
                                 m.parameters.as_ref().map(|p| p.as_str().to_string()),
                                 m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                                m.thinking.is_some(),
                             )
                         })
                         .collect();
@@ -243,13 +246,14 @@ pub fn prefetch_all_models(managers: Managers, cx: &mut App) {
                     let provider_id_clone = provider_id.clone();
                     let icon_path_clone = icon_path.clone();
 
-                    let _ = models_cache.update(cx, |cache, _| {
+                    let _ = models_cache.update(cx, |cache, cx| {
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
                             icon_path_clone,
                             model_pairs,
                         );
+                        cx.notify();
                     });
                 }
                 Err(err) => {
@@ -326,8 +330,10 @@ pub fn fetch_all_models_with_source(
             ModelSelectionSource::Current => &models.current_model,
             ModelSelectionSource::ChatTitles => &models.chat_titles_model,
         };
-        let (provider_id, _, model, _, _) = pair.read_selection(cx);
-        (provider_id, model)
+        match pair.read(cx).as_ref() {
+            Some(p) => (Some(p.provider_id.clone()), Some(p.model.clone())),
+            None => (None, None),
+        }
     });
 
     cx.spawn(async move |cx: &mut AsyncApp| {
@@ -351,7 +357,7 @@ pub fn fetch_all_models_with_source(
             });
 
             if !is_stale {
-                let cached_models: Option<Vec<(String, String, Option<String>, Option<String>)>> =
+                let cached_models: Option<Vec<(String, String, Option<String>, Option<String>, bool)>> =
                     cx.read_entity(&models_cache, |cache, _| {
                         cache
                             .get_provider_models(&provider_id)
@@ -361,7 +367,7 @@ pub fn fetch_all_models_with_source(
                 if let Some(models) = cached_models {
                     let icon_path = icon_path.clone();
                     let _ = cx.update(|cx| {
-                        for (model_id, display_name, parameters, quantization) in &models {
+                        for (model_id, display_name, parameters, quantization, _) in &models {
                             push_model_item(
                                 &state,
                                 &provider_name,
@@ -383,7 +389,7 @@ pub fn fetch_all_models_with_source(
 
             match provider.inner.list_models().await {
                 Ok(models) => {
-                    let model_pairs: Vec<(String, String, Option<String>, Option<String>)> = models
+                    let model_pairs: Vec<(String, String, Option<String>, Option<String>, bool)> = models
                         .iter()
                         .map(|m| {
                             (
@@ -391,6 +397,7 @@ pub fn fetch_all_models_with_source(
                                 m.to_string(),
                                 m.parameters.as_ref().map(|p| p.as_str().to_string()),
                                 m.quantization.as_ref().map(|q| q.as_str().to_string()),
+                                m.thinking.is_some(),
                             )
                         })
                         .collect();
@@ -398,13 +405,14 @@ pub fn fetch_all_models_with_source(
                     let provider_id_clone = provider_id.clone();
                     let icon_path_clone = icon_path.clone();
 
-                    let _ = models_cache.update(cx, |cache, _| {
+                    let _ = models_cache.update(cx, |cache, cx| {
                         cache.refresh_models_for_provider(
                             provider_id_clone,
                             provider_name_clone,
                             icon_path_clone,
                             model_pairs,
                         );
+                        cx.notify();
                     });
 
                     let _ = cx.update(|cx| {
@@ -450,7 +458,7 @@ pub fn observe_providers_for_refresh(
         state.remove_selection(cx);
 
         managers.models.update(cx, |models, cx| {
-            let current_provider_id = models.current_model.provider_id.read(cx).clone();
+            let current_provider_id = models.current_model.read(cx).as_ref().map(|p| p.provider_id.clone());
 
             if let Some(provider_id) = current_provider_id {
                 let provider_exists = providers.read(cx).get(&provider_id).is_some();
@@ -459,11 +467,7 @@ pub fn observe_providers_for_refresh(
                 }
             }
 
-            let chat_titles_provider_id = models
-                .chat_titles_model
-                .provider_id
-                .read(cx)
-                .clone();
+            let chat_titles_provider_id = models.chat_titles_model.read(cx).as_ref().map(|p| p.provider_id.clone());
 
             if let Some(provider_id) = chat_titles_provider_id {
                 let provider_exists = providers.read(cx).get(&provider_id).is_some();

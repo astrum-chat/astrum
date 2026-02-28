@@ -1,7 +1,8 @@
-## Unreleased
+## v0.1.11
 ## Features
 - Threads can now be deleted.
-- Errors are now surfaced to the user via native OS alert dialogs instead of silently failing.
+- A system prompt can now be configured in settings.
+- Added support for thinking/reasoning.
 
 ## Fixes
 - Fixed UI freezing briefly when switching threads, sending messages, or managing providers.
