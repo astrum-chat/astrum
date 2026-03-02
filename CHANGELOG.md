@@ -1,6 +1,6 @@
 # v0.1.12
 ## Features
-- Input's with a large amount of text now performs more smoothly.
+- Input's with a large amount of text now perform more smoothly.
 
 ## Fixes
 - Fixed issue where trying to send a message whilst the llm is still responding would only stop the llm's response.
