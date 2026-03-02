@@ -255,7 +255,7 @@ fn thinking_button(
         .icon(AstrumIconKind::Think)
         .icon_size(px(18.))
         .p(px(9.))
-        .variant(ToggleVariant::Constructive)
+        .variant(ToggleVariant::Secondary)
         .checked(thinking_enabled)
         .disabled(!model_supports_thinking)
         .on_click(move |_event, _window, cx| {
