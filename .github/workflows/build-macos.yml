@@ -35,9 +35,6 @@ jobs:
           toolchain: 1.92.0
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
-      - name: Generate lockfile
-        run: cargo generate-lockfile
-
       - name: Restore Rust Cache
         uses: actions/cache/restore@v4
         with:
@@ -48,6 +45,9 @@ jobs:
           key: macos-${{ matrix.label }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             macos-${{ matrix.label }}-cargo-
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
 
       - name: Build x86_64 and aarch64
         run: |
