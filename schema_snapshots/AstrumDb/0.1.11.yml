@@ -1,0 +1,81 @@
+tables:
+  chats:
+    fields:
+      id:
+        type: Text
+        primary_key: true
+      title:
+        type: Text
+        optional: true
+      created_at:
+        type: Text
+      edited_at:
+        type: Text
+  messages:
+    fields:
+      id:
+        type: Text
+        primary_key: true
+      chat_id:
+        type: Text
+      role:
+        type: Text
+      content:
+        type: Text
+      created_at:
+        type: Text
+      edited_at:
+        type: Text
+    foreign_keys:
+      chat_id:
+        foreign_table: chats
+        foreign_field: id
+        on_delete: Cascade
+        on_update: NoAction
+  providers:
+    fields:
+      id:
+        type: Text
+        primary_key: true
+      kind:
+        type: Text
+      name:
+        type: Text
+      url:
+        type: Text
+        optional: true
+      created_at:
+        type: Text
+        optional: true
+      edited_at:
+        type: Text
+        optional: true
+    removed_fields:
+    - icon
+  model_selections:
+    fields:
+      key:
+        type: Text
+        primary_key: true
+      provider_id:
+        type: Text
+        optional: true
+      provider_name:
+        type: Text
+        optional: true
+      model:
+        type: Text
+        optional: true
+      parameters:
+        type: Text
+        optional: true
+      quantization:
+        type: Text
+        optional: true
+  system_prompts:
+    fields:
+      id:
+        type: Text
+        primary_key: true
+      content:
+        type: Text
