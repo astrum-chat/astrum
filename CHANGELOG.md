@@ -1,4 +1,4 @@
-# Unreleased
+# v0.1.12
 ## Features
 - Input's with a large amount of text now performs more smoothly.
 
