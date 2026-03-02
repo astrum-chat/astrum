@@ -1,3 +1,10 @@
+# Unreleased
+## Features
+- Input's with a large amount of text now performs more smoothly.
+
+## Fixes
+- Fixed issue where trying to send a message whilst the llm is still responding would only stop the llm's response.
+
 # v0.1.11
 ## Features
 - Threads can now be deleted.
