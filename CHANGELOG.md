@@ -1,7 +1,3 @@
-# v0.1.14
-## Fixes
-- The `Claude Agent SDK` provider no longer prompts for access to irrelevant directories.
-
 # v0.1.13
 ## Features
 - Added support for `Claude Agent SDK` as an inferance provider.
