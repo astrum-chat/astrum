@@ -1,3 +1,7 @@
+# v0.1.14
+## Features
+- LLM responses are now streamed in more smoothly.
+
 # v0.1.13
 ## Features
 - Added support for `Claude Agent SDK` as an inferance provider.

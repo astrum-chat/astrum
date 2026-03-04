@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
-use anyml::{ChatOptions, MessageRole, Thinking, models::Message};
-use futures::future::{AbortHandle, Abortable};
+use anyml::{ChatChunk, ChatOptions, MessageRole, Thinking, models::Message};
 use gpui::{App, AsyncApp, Entity};
 use gpui_tesserae::primitives::input::InputState;
+use llm_subchunk::SubChunker;
 use notitia::Notitia;
 use notitia::prelude::*;
 use notitia_sqlite::SqliteAdapter;
 use serde_json::value::RawValue;
+use tracing::{info, warn};
 
 use schema::{AstrumDb, MessageRecord, UniqueId};
 
@@ -37,7 +38,7 @@ pub fn send_message(managers: &Managers, chat_box_input_state: &Entity<InputStat
 
     let thinking_enabled = get_thinking_enabled(managers, cx);
 
-    let (chat_id, is_new_chat, db, abort_registration) = managers.chats.update(cx, |chats, cx| {
+    let (chat_id, is_new_chat, db) = managers.chats.update(cx, |chats, cx| {
         let (chat_id, is_new_chat) = match chats.get_current_chat_id().read(cx).as_ref() {
             Some(id) => (id.clone(), false),
             None => {
@@ -51,12 +52,9 @@ pub fn send_message(managers: &Managers, chat_box_input_state: &Entity<InputStat
 
         chats.set_streaming(cx, true);
 
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        chats.set_abort_handle(cx, Some(abort_handle));
-
         let db = chats.db().clone();
 
-        (chat_id, is_new_chat, db, abort_registration)
+        (chat_id, is_new_chat, db)
     });
 
     let assistant_msg_id = UniqueId::new();
@@ -72,47 +70,53 @@ pub fn send_message(managers: &Managers, chat_box_input_state: &Entity<InputStat
     let chat_id_for_stream = chat_id.clone();
 
     cx.spawn(async move |cx: &mut AsyncApp| {
-        let streaming_future = async {
-            if let Err(e) = persist_messages(
-                &db,
-                &chat_id_for_stream,
-                &assistant_msg_id,
-                &user_content,
-                is_new_chat,
-            )
-            .await
-            {
-                push_error_async(&errors, cx, e);
-                return;
-            }
+        let mut subchunker = SubChunker::new(3, 0.45);
 
-            let api_messages =
-                match build_api_messages(&db, &chat_id_for_stream, &system_prompt, &errors, cx)
-                    .await
-                {
-                    Some(msgs) => msgs,
-                    None => return,
-                };
+        if let Err(e) = persist_messages(
+            &db,
+            &chat_id_for_stream,
+            &assistant_msg_id,
+            &user_content,
+            is_new_chat,
+        )
+        .await
+        {
+            push_error_async(&errors, cx, e);
+            return;
+        }
 
-            stream_chunks(
-                current_provider.inner.clone(),
-                &current_model,
-                api_messages,
-                thinking_enabled,
-                &chat_id_for_stream,
-                &chats,
-                &assistant_msg_id,
-                cx,
-            )
-            .await;
+        let Some(api_messages) =
+            build_api_messages(&db, &chat_id_for_stream, &system_prompt, &errors, cx).await
+        else {
+            return;
         };
 
-        let _ = Abortable::new(streaming_future, abort_registration).await;
+        stream_chunks(
+            current_provider.inner.clone(),
+            &current_model,
+            api_messages,
+            thinking_enabled,
+            &chat_id_for_stream,
+            &chats,
+            &assistant_msg_id,
+            &mut subchunker,
+            cx,
+        )
+        .await;
+
+        // Flush any unsent sub-chunks so no content is lost on abort.
+        if let Some(unsent) = subchunker.flush() {
+            warn!("Stream aborted with unsent sub-chunks: {:?}", unsent);
+            let _ = chats.update(cx, |chats, cx| {
+                chats.push_message_content(cx, &assistant_msg_id, unsent);
+            });
+        } else {
+            info!("Stream aborted with zero unsent sub-chunks");
+        }
 
         let _ = chats.update(cx, |chats, cx| {
             chats.drop_mutation_queue(&assistant_msg_id);
             chats.set_streaming(cx, false);
-            chats.set_abort_handle(cx, None);
         });
     })
     .detach();
@@ -235,8 +239,13 @@ async fn stream_chunks(
     chat_id: &UniqueId,
     chats: &Entity<ChatsManager>,
     assistant_msg_id: &UniqueId,
+    subchunker: &mut SubChunker,
     cx: &mut AsyncApp,
 ) {
+    println!("{}", api_messages);
+
+    println!("{}", model);
+
     let mut options = ChatOptions::new(model)
         .messages_serialized(api_messages)
         .session_id(chat_id.as_str());
@@ -244,27 +253,56 @@ async fn stream_chunks(
         options = options.thinking(Thinking::Enabled);
     }
 
-    match provider.chat(&options).await {
-        Ok(mut response) => {
-            while let Some(result) = response.next().await {
-                match result {
-                    Ok(chunk) => {
-                        let _ = chats.update(cx, |chats, cx| {
-                            chats.push_chunk(cx, assistant_msg_id, &chunk);
-                        });
-                    }
-                    Err(err) => {
-                        let _ = chats.update(cx, |chats, cx| {
-                            chats.push_message_content(cx, assistant_msg_id, &err.to_string());
-                        });
-                    }
-                }
-            }
-        }
+    let mut response = match provider.chat(&options).await {
+        Ok(response) => response,
         Err(err) => {
             let _ = chats.update(cx, |chats, cx| {
                 chats.push_message_content(cx, assistant_msg_id, &err.to_string());
             });
+            return;
         }
     };
+
+    while let Some(result) = response.next().await {
+        let is_streaming = chats.update(cx, |chats, cx| *chats.is_streaming.read(cx));
+        if !is_streaming {
+            return;
+        }
+
+        let chunk = match result {
+            Ok(chunk) => chunk,
+            Err(err) => {
+                let _ = chats.update(cx, |chats, cx| {
+                    chats.push_message_content(cx, assistant_msg_id, &err.to_string());
+                });
+                continue;
+            }
+        };
+
+        let (text, is_thinking) = match &chunk {
+            ChatChunk::Content(t) => (t.as_str(), false),
+            ChatChunk::Thinking(t) => (t.as_str(), true),
+        };
+
+        for sub in subchunker.process(text) {
+            if let Some(d) = sub.delay {
+                smol::Timer::after(d).await;
+            }
+
+            let sub_chunk = if is_thinking {
+                ChatChunk::Thinking(sub.text)
+            } else {
+                ChatChunk::Content(sub.text)
+            };
+
+            let is_streaming = chats.update(cx, |chats, cx| {
+                chats.push_chunk(cx, assistant_msg_id, &sub_chunk);
+                *chats.is_streaming.read(cx)
+            });
+
+            if !is_streaming {
+                return;
+            }
+        }
+    }
 }

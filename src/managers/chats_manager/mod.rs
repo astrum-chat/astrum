@@ -33,7 +33,6 @@ pub struct ChatsManager {
     current_chat_id: Entity<Option<UniqueId>>,
     pub is_streaming: Entity<bool>,
     pub thinking_enabled: Entity<bool>,
-    pub streaming_abort_handle: Entity<Option<AbortHandle>>,
     mutation_queues: HashMap<UniqueId, Sender<MessageMutation>>,
     title_abort_handles: HashMap<UniqueId, AbortHandle>,
     /// Tracks the kind of the last streamed chunk for each message.
@@ -47,7 +46,6 @@ impl ChatsManager {
             current_chat_id: cx.new(|_cx| None),
             is_streaming: cx.new(|_cx| false),
             thinking_enabled: cx.new(|_cx| false),
-            streaming_abort_handle: cx.new(|_cx| None),
             mutation_queues: HashMap::new(),
             title_abort_handles: HashMap::new(),
             last_chunk_kind: HashMap::new(),
@@ -139,18 +137,7 @@ impl ChatsManager {
         });
     }
 
-    pub fn set_abort_handle(&self, cx: &mut App, handle: Option<AbortHandle>) {
-        self.streaming_abort_handle.update(cx, |abort_handle, cx| {
-            *abort_handle = handle;
-            cx.notify();
-        });
-    }
-
     pub fn cancel_streaming(&self, cx: &mut App) {
-        if let Some(handle) = self.streaming_abort_handle.read(cx).as_ref() {
-            handle.abort();
-        }
-        self.set_abort_handle(cx, None);
         self.set_streaming(cx, false);
     }
 
