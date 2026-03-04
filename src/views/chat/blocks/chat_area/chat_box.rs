@@ -194,7 +194,13 @@ impl RenderOnce for ChatBox {
                         let managers = self.managers.clone();
 
                         this.on_click(move |_event, _window, cx| {
-                            send_message(&managers, &chat_box_input_state, cx);
+                            if is_streaming {
+                                managers
+                                    .chats
+                                    .update(cx, |chats, cx| chats.cancel_streaming(cx));
+                            } else {
+                                send_message(&managers, &chat_box_input_state, cx);
+                            }
                         })
                     }),
             )

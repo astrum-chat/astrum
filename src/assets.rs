@@ -91,6 +91,9 @@ pub enum AstrumProviderLogoKind {
     #[assoc(path = "providers/anthropic/logo.svg")]
     Anthropic,
 
+    #[assoc(path = "providers/claude_agents_sdk/logo.svg")]
+    ClaudeSdk,
+
     #[assoc(path = "providers/gemini/logo.svg")]
     Gemini,
 
@@ -121,6 +124,9 @@ impl Into<SharedString> for &AstrumProviderLogoKind {
 pub enum AstrumProviderIconKind {
     #[assoc(path = "providers/anthropic/icon.svg")]
     Anthropic,
+
+    #[assoc(path = "providers/claude_agents_sdk/icon.svg")]
+    ClaudeSdk,
 
     #[assoc(path = "providers/gemini/icon.svg")]
     Gemini,

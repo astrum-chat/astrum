@@ -19,7 +19,7 @@ use schema::UniqueId;
 use crate::{
     assets::AstrumIconKind,
     blocks::models_menu::{ProviderConfigChange, refetch_provider_models},
-    managers::{Managers, Provider},
+    managers::{Managers, Provider, ProviderKind},
     views::settings::blocks::settings_area::pages::providers_page::QueryBounds,
 };
 
@@ -95,6 +95,10 @@ impl RenderOnce for ProviderSettings {
         let corner_radius = cx.get_theme().layout.corner_radii.lg;
         let padding = cx.get_theme().layout.padding.xl;
 
+        // TODO: Replace this hardcoded check with a provider-driven approach
+        // (e.g. providers declaring which settings fields they support).
+        let show_url = self.provider.kind != ProviderKind::ClaudeSdk;
+
         let url_input_state =
             window.use_keyed_state(self.id.with_suffix("state:url_input"), cx, |_window, cx| {
                 InputState::new(cx).initial_value(self.provider.url.read(cx))
@@ -157,14 +161,16 @@ impl RenderOnce for ProviderSettings {
                     .line_height(relative(1.))
                     .child(self.provider.name.read(cx).clone()),
             )
-            .child(
-                min_w0_wrapper()
-                    .text_size(text_caption_size)
-                    .text_color(secondary_text_color)
-                    .font_weight(FontWeight::MEDIUM)
-                    .line_height(relative(1.))
-                    .child(url_input_state.read(cx).value()),
-            );
+            .when(show_url, |this| {
+                this.child(
+                    min_w0_wrapper()
+                        .text_size(text_caption_size)
+                        .text_color(secondary_text_color)
+                        .font_weight(FontWeight::MEDIUM)
+                        .line_height(relative(1.))
+                        .child(url_input_state.read(cx).value()),
+                )
+            });
 
         let top_left_content = div()
             .w_full()
@@ -366,21 +372,23 @@ impl RenderOnce for ProviderSettings {
                                 .flex_col()
                                 .gap(padding)
                                 .p(padding)
-                                .child(
-                                    div()
-                                        .flex()
-                                        .flex_col()
-                                        .gap((padding / 1.5).floor())
-                                        .child(
-                                            div()
-                                                .text_size(text_caption_size)
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .text_color(primary_text_color)
-                                                .line_height(relative(1.))
-                                                .child("URL"),
-                                        )
-                                        .child(url_input),
-                                )
+                                .when(show_url, |this| {
+                                    this.child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .gap((padding / 1.5).floor())
+                                            .child(
+                                                div()
+                                                    .text_size(text_caption_size)
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(primary_text_color)
+                                                    .line_height(relative(1.))
+                                                    .child("URL"),
+                                            )
+                                            .child(url_input),
+                                    )
+                                })
                                 .child(
                                     div()
                                         .flex()

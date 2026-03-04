@@ -1,3 +1,7 @@
+# v0.1.13
+## Features
+- Added support for `Claude Agent SDK` as an inferance provider.
+
 # v0.1.12
 ## Features
 - Input's with a large amount of text now perform more smoothly.

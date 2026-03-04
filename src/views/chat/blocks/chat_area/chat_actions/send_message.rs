@@ -24,12 +24,16 @@ pub fn send_message(managers: &Managers, chat_box_input_state: &Entity<InputStat
         return;
     };
 
-    ensure_last_response_finished(managers, cx);
-
     let Some(contents) = chat_box_input_state.update(cx, |this: &mut InputState, _cx| this.clear())
     else {
         return;
     };
+
+    if contents.is_empty() {
+        return;
+    }
+
+    ensure_last_response_finished(managers, cx);
 
     let thinking_enabled = get_thinking_enabled(managers, cx);
 
@@ -95,6 +99,7 @@ pub fn send_message(managers: &Managers, chat_box_input_state: &Entity<InputStat
                 &current_model,
                 api_messages,
                 thinking_enabled,
+                &chat_id_for_stream,
                 &chats,
                 &assistant_msg_id,
                 cx,
@@ -227,21 +232,33 @@ async fn stream_chunks(
     model: &str,
     api_messages: Box<RawValue>,
     thinking_enabled: bool,
+    chat_id: &UniqueId,
     chats: &Entity<ChatsManager>,
     assistant_msg_id: &UniqueId,
     cx: &mut AsyncApp,
 ) {
-    let mut options = ChatOptions::new(model).messages_serialized(api_messages);
+    let mut options = ChatOptions::new(model)
+        .messages_serialized(api_messages)
+        .session_id(chat_id.as_str());
     if thinking_enabled {
         options = options.thinking(Thinking::Enabled);
     }
 
     match provider.chat(&options).await {
         Ok(mut response) => {
-            while let Some(Ok(chunk)) = response.next().await {
-                let _ = chats.update(cx, |chats, cx| {
-                    chats.push_chunk(cx, assistant_msg_id, &chunk);
-                });
+            while let Some(result) = response.next().await {
+                match result {
+                    Ok(chunk) => {
+                        let _ = chats.update(cx, |chats, cx| {
+                            chats.push_chunk(cx, assistant_msg_id, &chunk);
+                        });
+                    }
+                    Err(err) => {
+                        let _ = chats.update(cx, |chats, cx| {
+                            chats.push_message_content(cx, assistant_msg_id, &err.to_string());
+                        });
+                    }
+                }
             }
         }
         Err(err) => {

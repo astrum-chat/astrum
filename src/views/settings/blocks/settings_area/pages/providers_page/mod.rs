@@ -1,12 +1,12 @@
 use gpui::{
-    App, Bounds, ElementId, Overflow, Pixels, PointRefinement, Window, canvas, deferred, div,
-    prelude::*, px, relative,
+    App, Bounds, ElementId, Hsla, IntoElement, Overflow, Pixels, PointRefinement, SharedString,
+    Window, canvas, deferred, div, prelude::*, px, relative,
 };
 use gpui_tesserae::{
     ElementIdExt,
     components::{
-        Button,
-        select::{SelectItemsMap, SelectMenu, SelectState},
+        Button, Icon,
+        select::{SelectItem, SelectItemsMap, SelectMenu, SelectState},
     },
     extensions::mouse_handleable::MouseHandleable,
     theme::{ThemeExt, ThemeLayerKind},
@@ -21,6 +21,48 @@ use crate::{
     managers::{Managers, ProviderKind},
     views::settings::blocks::settings_area::pages::render_settings_page_title,
 };
+
+#[derive(Clone)]
+struct ProviderSelectItem {
+    name: SharedString,
+    icon_path: SharedString,
+    kind: ProviderKind,
+}
+
+impl SelectItem for ProviderSelectItem {
+    type Value = ProviderKind;
+
+    fn name(&self) -> SharedString {
+        self.name.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.kind
+    }
+
+    fn display(&self, _window: &mut Window, _cx: &App, text_color: Hsla) -> impl IntoElement {
+        div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.))
+            .child(
+                Icon::new(self.icon_path.clone())
+                    .size(px(14.))
+                    .color(text_color)
+                    .flex_shrink_0(),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .w_full()
+                    .text_ellipsis()
+                    .text_color(text_color)
+                    .child(self.name.clone()),
+            )
+    }
+}
 
 #[derive(IntoElement)]
 pub struct ProvidersPage {
@@ -39,16 +81,27 @@ impl ProvidersPage {
 
 impl RenderOnce for ProvidersPage {
     fn render(self, window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
-        let mut add_provider_menu_state = SelectState::<_, &'static str>::from_window(
+        let provider_kinds = [
+            ProviderKind::Ollama,
+            ProviderKind::OpenAi,
+            ProviderKind::Anthropic,
+            ProviderKind::ClaudeSdk,
+        ];
+
+        let mut add_provider_menu_state = SelectState::<_, ProviderSelectItem>::from_window(
             self.id.with_suffix("select_state"),
             window,
             cx,
             |_window, cx| {
                 let mut map = SelectItemsMap::new();
 
-                map.push_item(cx, "Ollama");
-                map.push_item(cx, "OpenAI");
-                map.push_item(cx, "Anthropic");
+                for kind in provider_kinds {
+                    map.push_item(cx, ProviderSelectItem {
+                        name: kind.default_name(),
+                        icon_path: kind.default_icon(),
+                        kind,
+                    });
+                }
 
                 map
             },
@@ -60,6 +113,7 @@ impl RenderOnce for ProvidersPage {
                 "Ollama" => ProviderKind::Ollama,
                 "OpenAI" => ProviderKind::OpenAi,
                 "Anthropic" => ProviderKind::Anthropic,
+                "Claude SDK" => ProviderKind::ClaudeSdk,
                 _ => return,
             };
 

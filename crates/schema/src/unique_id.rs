@@ -16,6 +16,10 @@ impl UniqueId {
     pub fn from_string(string: impl Into<String>) -> Self {
         Self(string.into())
     }
+
+    pub const fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 impl AsRef<UniqueId> for UniqueId {

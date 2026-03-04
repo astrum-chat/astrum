@@ -111,19 +111,20 @@ fn apply_config_change(
     config_change: &ProviderConfigChange,
     cx: &mut App,
 ) {
-    managers.models.update(cx, |models, cx| {
+    let secret_task = managers.models.update(cx, |models, cx| {
         match config_change {
-            ProviderConfigChange::Create => {}
+            ProviderConfigChange::Create => None,
             ProviderConfigChange::Url(url) => {
                 let _ = models
                     .edit_provider_url(cx, provider_id.clone(), url.clone());
+                None
             }
             ProviderConfigChange::ApiKey(api_key) => {
-                let _ = models.edit_provider_api_key(
+                models.edit_provider_api_key(
                     cx,
                     provider_id.clone(),
                     api_key.clone(),
-                );
+                )
             }
         }
     });
@@ -131,6 +132,10 @@ fn apply_config_change(
     let models = managers.models.clone();
     let provider_id = provider_id.clone();
     cx.spawn(async move |cx: &mut AsyncApp| {
+        // Await the keychain write so reinit_provider reads the new value.
+        if let Some(task) = secret_task {
+            let _ = task.await;
+        }
         ModelsManager::reinit_provider(models, provider_id, cx).await;
     })
     .detach();

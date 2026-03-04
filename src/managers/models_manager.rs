@@ -2,7 +2,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyml::{
-    AnthropicProvider, OllamaProvider, OpenAiProvider,
+    AnthropicProvider, ClaudeSdkProvider, OllamaProvider, OpenAiProvider,
+    install_cli as install_claude_cli,
     providers::{chat::ChatProvider, list_models::ListModelsProvider},
 };
 use enum_assoc::Assoc;
@@ -160,22 +161,39 @@ impl ModelsManager {
         .detach();
 
         let http_client = GpuiHttpWrapper::new(cx.http_client());
-        self.init_provider(cx, &provider_id, &kind, name, url, api_key_for_init, http_client);
+        self.init_provider(
+            cx,
+            &provider_id,
+            &kind,
+            name,
+            url,
+            api_key_for_init,
+            http_client,
+        );
 
         provider_id
     }
 
     pub fn get_current_model(&self, cx: &App) -> Option<String> {
-        self.current_model.read(cx).as_ref().map(|p| p.model.clone())
+        self.current_model
+            .read(cx)
+            .as_ref()
+            .map(|p| p.model.clone())
     }
 
     pub fn clear_current_selection(&mut self, cx: &mut App) {
-        self.current_model.update(cx, |pair, cx| { *pair = None; cx.notify(); });
+        self.current_model.update(cx, |pair, cx| {
+            *pair = None;
+            cx.notify();
+        });
         self.save_model_selection(cx, "current", None, None, None, None, None);
     }
 
     pub fn clear_chat_titles_selection(&mut self, cx: &mut App) {
-        self.chat_titles_model.update(cx, |pair, cx| { *pair = None; cx.notify(); });
+        self.chat_titles_model.update(cx, |pair, cx| {
+            *pair = None;
+            cx.notify();
+        });
         self.save_model_selection(cx, "chat_titles", None, None, None, None, None);
     }
 
@@ -218,7 +236,10 @@ impl ModelsManager {
     }
 
     pub fn get_chat_titles_model(&self, cx: &App) -> Option<String> {
-        self.chat_titles_model.read(cx).as_ref().map(|p| p.model.clone())
+        self.chat_titles_model
+            .read(cx)
+            .as_ref()
+            .map(|p| p.model.clone())
     }
 
     fn save_model_selection(
@@ -330,8 +351,17 @@ impl ModelsManager {
                 let id: &UniqueId = &*provider_id;
                 let secret_name = ModelsManager::construct_provider_api_key_name(id, name);
                 let task = models.update(cx, |_models, cx| get_secret(cx, &secret_name));
-                let key = task.await.ok().unwrap_or_else(|| SecretString::from(String::new()));
-                api_keys.insert(id.clone(), key);
+                match task.await {
+                    Ok(key) => {
+                        let is_empty = key.expose_secret().is_empty();
+                        tracing::debug!(provider = %name, empty = is_empty, "Loaded API key from keychain");
+                        api_keys.insert(id.clone(), key);
+                    }
+                    Err(e) => {
+                        tracing::debug!(provider = %name, error = %e, "No API key in keychain");
+                        api_keys.insert(id.clone(), SecretString::from(String::new()));
+                    }
+                }
             }
         }
 
@@ -398,7 +428,12 @@ impl ModelsManager {
         // capability info before the first render.
         let current_provider: Option<(UniqueId, Provider)> = models.update(cx, |models, cx| {
             let pair = models.current_model.read(cx).clone()?;
-            let provider = models.providers.read(cx).get(&pair.provider_id)?.as_ref().clone();
+            let provider = models
+                .providers
+                .read(cx)
+                .get(&pair.provider_id)?
+                .as_ref()
+                .clone();
             Some((pair.provider_id, provider))
         });
 
@@ -423,9 +458,7 @@ impl ModelsManager {
                         })
                         .collect();
 
-                let models_cache = cx.read_entity(&models, |models, _| {
-                    models.models_cache.clone()
-                });
+                let models_cache = cx.read_entity(&models, |models, _| models.models_cache.clone());
 
                 let _ = models_cache.update(cx, |cache, cx| {
                     cache.refresh_models_for_provider(
@@ -448,13 +481,31 @@ impl ModelsManager {
     ) -> Arc<dyn ProviderTrait> {
         match kind {
             ProviderKind::Ollama => Arc::new(OllamaProvider::new(http_client).url(url)),
-            ProviderKind::OpenAi => {
-                Arc::new(OpenAiProvider::new(http_client, api_key).url(url))
-            }
+            ProviderKind::OpenAi => Arc::new(OpenAiProvider::new(http_client, api_key).url(url)),
             ProviderKind::Anthropic => {
                 Arc::new(AnthropicProvider::new(http_client, api_key).url(url))
             }
+            ProviderKind::ClaudeSdk => {
+                let cli_path = Self::claude_cli_path();
+                let mut provider = ClaudeSdkProvider::new(&cli_path);
+                if !api_key.expose_secret().is_empty() {
+                    provider = provider.api_key(api_key);
+                }
+                Arc::new(provider)
+            }
         }
+    }
+
+    fn claude_cli_path() -> std::path::PathBuf {
+        let dir = dirs::data_local_dir()
+            .map(|d| d.join("chat.astrum.astrum"))
+            .expect("failed to resolve local data dir");
+        let binary_name = if cfg!(target_os = "windows") {
+            "claude.exe"
+        } else {
+            "claude"
+        };
+        dir.join(binary_name)
     }
 
     fn init_provider(
@@ -473,10 +524,26 @@ impl ModelsManager {
         let logo = kind.default_logo().to_string();
 
         self.providers.update(cx, |providers, cx| {
-            let provider = Arc::new(Provider::new(cx, inner, name, url, icon, logo));
+            let provider = Arc::new(Provider::new(cx, *kind, inner, name, url, icon, logo));
             providers.insert_front(provider_id.clone(), provider);
             cx.notify();
         });
+
+        if matches!(kind, ProviderKind::ClaudeSdk) {
+            let cli_path = Self::claude_cli_path();
+            cx.background_executor()
+                .spawn(async move {
+                    if !cli_path.exists() {
+                        if let Err(e) = install_claude_cli(&cli_path) {
+                            error!(
+                                "Failed to install Claude CLI to {}: {e}",
+                                cli_path.display()
+                            );
+                        }
+                    }
+                })
+                .detach();
+        }
 
         Some(())
     }
@@ -516,20 +583,24 @@ impl ModelsManager {
 
         // Read credential async
         let secret_name = Self::construct_provider_api_key_name(&provider_id, &name);
-        let api_key = models.update(cx, |_models, cx| {
-            get_secret(cx, &secret_name)
-        }).await.ok().unwrap_or_else(|| SecretString::from(String::new()));
+        let api_key = models
+            .update(cx, |_models, cx| get_secret(cx, &secret_name))
+            .await
+            .ok()
+            .unwrap_or_else(|| SecretString::from(String::new()));
+
+        // Build the provider client outside the main-thread update to avoid
+        // blocking the UI (e.g. filesystem checks for the Claude CLI path).
+        let http_client = models.update(cx, |_models, cx| GpuiHttpWrapper::new(cx.http_client()));
+        let inner = Self::create_provider_client(&kind, url.clone(), api_key, http_client);
 
         // Apply on main thread
         models.update(cx, |models, cx| {
-            let http_client = GpuiHttpWrapper::new(cx.http_client());
-            let inner = Self::create_provider_client(&kind, url.clone(), api_key, http_client);
-
             let icon = kind.default_icon().to_string();
             let logo = kind.default_logo().to_string();
 
             models.providers.update(cx, |providers, cx| {
-                let new_provider = Arc::new(Provider::new(cx, inner, name, url, icon, logo));
+                let new_provider = Arc::new(Provider::new(cx, kind, inner, name, url, icon, logo));
                 providers.insert(provider_id.clone(), new_provider);
                 cx.notify();
             });
@@ -540,11 +611,7 @@ impl ModelsManager {
         format!("chat.astrum.astrum:provider:{}:{}", name, provider_id)
     }
 
-    pub fn get_provider_api_key(
-        &self,
-        cx: &App,
-        provider_id: &UniqueId,
-    ) -> Task<Option<String>> {
+    pub fn get_provider_api_key(&self, cx: &App, provider_id: &UniqueId) -> Task<Option<String>> {
         let Some(provider) = self.providers.read(cx).get(provider_id).cloned() else {
             return Task::ready(None);
         };
@@ -553,9 +620,8 @@ impl ModelsManager {
             Self::construct_provider_api_key_name(provider_id, &provider.name.read(cx));
 
         let task = get_secret(cx, &secret_name);
-        cx.foreground_executor().spawn(async move {
-            task.await.ok().map(|s| s.expose_secret().to_string())
-        })
+        cx.foreground_executor()
+            .spawn(async move { task.await.ok().map(|s| s.expose_secret().to_string()) })
     }
 
     pub fn edit_provider_api_key(
@@ -563,22 +629,17 @@ impl ModelsManager {
         cx: &mut App,
         provider_id: UniqueId,
         api_key: Option<String>,
-    ) {
-        let Some(provider) = self.providers.read(cx).get(&provider_id).cloned() else {
-            return;
-        };
+    ) -> Option<Task<anyhow::Result<()>>> {
+        let provider = self.providers.read(cx).get(&provider_id).cloned()?;
 
         let secret_name =
             Self::construct_provider_api_key_name(&provider_id, &provider.name.read(cx));
 
-        match api_key {
-            Some(api_key) if !api_key.is_empty() => {
-                set_secret(cx, &secret_name, &api_key).detach();
-            }
-            _ => {
-                remove_secret(cx, &secret_name).detach();
-            }
-        }
+        let task = match api_key {
+            Some(api_key) if !api_key.is_empty() => set_secret(cx, &secret_name, &api_key),
+            _ => remove_secret(cx, &secret_name),
+        };
+        Some(task)
     }
 
     pub fn edit_provider_url(&mut self, cx: &mut App, provider_id: UniqueId, url: String) {
@@ -661,7 +722,7 @@ impl ModelsManager {
     }
 }
 
-#[derive(Assoc)]
+#[derive(Clone, Copy, PartialEq, Eq, Assoc)]
 #[func(pub fn as_str(&self) -> &'static str)]
 #[func(pub fn default_name(&self) -> SharedString)]
 #[func(pub fn default_url(&self) -> SharedString)]
@@ -688,6 +749,13 @@ pub enum ProviderKind {
     #[assoc(default_icon = AstrumProviderIconKind::OpenAi.into())]
     #[assoc(default_logo = AstrumProviderLogoKind::OpenAi.into())]
     OpenAi,
+
+    #[assoc(as_str = "claude_agents")]
+    #[assoc(default_name = "Claude SDK".into())]
+    #[assoc(default_url = "".into())]
+    #[assoc(default_icon = AstrumProviderIconKind::ClaudeSdk.into())]
+    #[assoc(default_logo = AstrumProviderLogoKind::ClaudeSdk.into())]
+    ClaudeSdk,
 }
 
 impl ProviderKind {
@@ -696,6 +764,7 @@ impl ProviderKind {
             "ollama" => Self::Ollama,
             "anthropic" => Self::Anthropic,
             "openai" => Self::OpenAi,
+            "claude_agents" => Self::ClaudeSdk,
             _ => Self::Ollama,
         }
     }
@@ -703,6 +772,7 @@ impl ProviderKind {
 
 #[derive(Clone)]
 pub struct Provider {
+    pub kind: ProviderKind,
     pub inner: Arc<dyn ProviderTrait>,
     pub name: Entity<SharedString>,
     pub url: Entity<SharedString>,
@@ -713,6 +783,7 @@ pub struct Provider {
 impl Provider {
     fn new(
         cx: &mut App,
+        kind: ProviderKind,
         inner: Arc<dyn ProviderTrait>,
         name: impl Into<SharedString>,
         url: impl Into<SharedString>,
@@ -720,6 +791,7 @@ impl Provider {
         logo: impl Into<SharedString>,
     ) -> Self {
         Self {
+            kind,
             inner,
             name: cx.new(|_cx| name.into()),
             url: cx.new(|_cx| url.into()),
@@ -789,16 +861,24 @@ mod tests {
             )
             .execute()
             .await;
-        result.ok().map(|(pk, model): (PrimaryKey<String>, Option<String>)| (pk.into_inner(), model))
+        result
+            .ok()
+            .map(|(pk, model): (PrimaryKey<String>, Option<String>)| (pk.into_inner(), model))
     }
 
     #[test]
     fn test_insert_new_model_selection() {
         smol::block_on(async {
             let db = test_db().await;
-            upsert_selection(&db, "current", Some(UniqueId::new()), Some("OpenAI".into()), Some("gpt-4".into()))
-                .await
-                .unwrap();
+            upsert_selection(
+                &db,
+                "current",
+                Some(UniqueId::new()),
+                Some("OpenAI".into()),
+                Some("gpt-4".into()),
+            )
+            .await
+            .unwrap();
 
             let result = query_selection(&db, "current").await;
             assert!(result.is_some());
@@ -814,13 +894,25 @@ mod tests {
             let db = test_db().await;
             let pid = UniqueId::new();
 
-            upsert_selection(&db, "current", Some(pid.clone()), Some("OpenAI".into()), Some("gpt-4".into()))
-                .await
-                .unwrap();
+            upsert_selection(
+                &db,
+                "current",
+                Some(pid.clone()),
+                Some("OpenAI".into()),
+                Some("gpt-4".into()),
+            )
+            .await
+            .unwrap();
 
-            upsert_selection(&db, "current", Some(pid), Some("OpenAI".into()), Some("gpt-4o".into()))
-                .await
-                .unwrap();
+            upsert_selection(
+                &db,
+                "current",
+                Some(pid),
+                Some("OpenAI".into()),
+                Some("gpt-4o".into()),
+            )
+            .await
+            .unwrap();
 
             let (_, model) = query_selection(&db, "current").await.unwrap();
             assert_eq!(model, Some("gpt-4o".to_string()));
@@ -850,7 +942,8 @@ mod tests {
     fn test_delete_nonexistent_key_does_not_error() {
         smol::block_on(async {
             let db = test_db().await;
-            let result = upsert_selection(&db, "nonexistent", None, None, Some("model".into())).await;
+            let result =
+                upsert_selection(&db, "nonexistent", None, None, Some("model".into())).await;
             assert!(result.is_ok());
         });
     }
